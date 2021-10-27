@@ -17,8 +17,13 @@ type defaultPRImplementation struct {
 }
 
 // loadRepository  returns the repo where the PR lives
-func (impl *defaultPRImplementation) loadRepository(pr *PullRequest) {
-	logrus.Fatal("Not implemented")
+func (impl *defaultPRImplementation) loadRepository(ctx context.Context, pr *PullRequest) {
+	ghRepo, _, err := impl.githubAPIUser.GitHubClient().Repositories.Get(ctx, pr.RepoOwner, pr.RepoName)
+	if err != nil {
+		logrus.Error(err)
+		return
+	}
+	pr.Repository = impl.githubAPIUser.NewRepository(ghRepo)
 }
 
 // GetMergeMode implements an algo to try and determine how the PR was
@@ -32,12 +37,12 @@ func (impl *defaultPRImplementation) getMergeMode(
 	ctx context.Context, pr *PullRequest, commits []*Commit,
 ) (mode string, err error) {
 
-	if pr.GetRepository() == nil {
+	if pr.GetRepository(ctx) == nil {
 		return "", errors.New("unable to get merge mode, pull request has no repo")
 	}
 
 	// Fetch the PR data from the github API
-	mergeCommit, err := pr.GetRepository().GetCommit(ctx, pr.MergeCommitSHA)
+	mergeCommit, err := pr.GetRepository(ctx).GetCommit(ctx, pr.MergeCommitSHA)
 	if err != nil {
 		return "", errors.Wrapf(err, "querying GitHub for merge commit %s", pr.MergeCommitSHA)
 	}
@@ -106,4 +111,68 @@ func (impl *defaultPRImplementation) getCommits(ctx context.Context, pr *PullReq
 
 	logrus.Info(fmt.Sprintf("Read %d commits from PR %d", len(commitList), pr.Number))
 	return list, nil
+}
+
+// findPatchTree analyzes the parents of the PR's merge commit and
+// returns the parent ID whose tree should be used to generate diff for
+// the cherry pick.
+//
+// A merge commit has a Patch Tree and a Branch Tree (correct these names)
+// if there is another, more official or appropiate nomenclature.
+func (impl *defaultPRImplementation) findPatchTree(
+	ctx context.Context, pr *PullRequest,
+) (parentNr int, err error) {
+	// Get the pull request commits
+	commits, err := pr.GetCommits(ctx)
+	if err != nil {
+		return 0, errors.Wrap(err, "getting pr commits")
+	}
+	if len(commits) == 0 {
+		return 0, errors.New("unable to find patch tree, commit list is empty")
+	}
+
+	// They way to find out which tree to use is to search the tree from
+	// the last commit in the PR. The tree sha in the PR commit will match
+	// the tree in the PR parent
+
+	// Get the commit information
+	repoCommit, _, err := impl.GitHubClient().Repositories.GetCommit(
+		ctx, pr.RepoOwner, pr.RepoName, pr.MergeCommitSHA, &gogithub.ListOptions{},
+	)
+	if err != nil {
+		return 0, errors.Wrapf(err, "querying GitHub for merge commit %s", pr.MergeCommitSHA)
+	}
+	if repoCommit == nil {
+		return 0, errors.Errorf("commit returned empty when querying sha %s", pr.MergeCommitSHA)
+	}
+
+	mergeCommit := impl.githubAPIUser.NewCommit(repoCommit.Commit)
+
+	// First, get the tree hash from the last commit in the PR
+	prSHA := commits[len(commits)-1].TreeSHA
+
+	// Now, cycle the parents, fetch their commits and see which one matches
+	// the tree hash extracted from the commit
+	for pn, parent := range mergeCommit.Parents {
+		parentCommit, _, err := impl.GitHubClient().Repositories.GetCommit(
+			ctx, pr.RepoOwner, pr.RepoName, parent.SHA, &gogithub.ListOptions{})
+		if err != nil {
+			return 0, errors.Wrapf(err, "querying GitHub for parent commit %s", parent.SHA)
+		}
+		if parentCommit == nil {
+			return 0, errors.Errorf("commit returned empty when querying sha %s", parent.SHA)
+		}
+
+		parentTreeSHA := parentCommit.Commit.GetTree().GetSHA()
+		logrus.Info(fmt.Sprintf("PR: %s - Parent: %s", prSHA, parentTreeSHA))
+		if parentTreeSHA == prSHA {
+			logrus.Info(fmt.Sprintf("Cherry pick to be performed diffing the parent #%d tree ", pn))
+			return pn, nil
+		}
+	}
+
+	// If not found, we return an error to make sure we don't use 0
+	return 0, errors.Errorf(
+		"unable to find patch tree of merge commit among %d parents", len(mergeCommit.Parents),
+	)
 }

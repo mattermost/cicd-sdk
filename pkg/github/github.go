@@ -68,6 +68,36 @@ func (gau *githubAPIUser) NewCommit(commit *gogithub.Commit) *Commit {
 	return c
 }
 
+// NewPullRequest builds a PullRequest object from a gogithub PR object
+func (gau *githubAPIUser) NewPullRequest(ghpr *gogithub.PullRequest) *PullRequest {
+	return &PullRequest{
+		impl:                &defaultPRImplementation{},
+		RepoOwner:           ghpr.GetBase().GetRepo().GetOwner().GetLogin(),
+		RepoName:            ghpr.GetBase().GetRepo().GetName(),
+		Number:              ghpr.GetNumber(),
+		Username:            ghpr.GetUser().GetLogin(),
+		FullName:            ghpr.GetHead().GetRepo().GetFullName(),
+		Ref:                 ghpr.GetHead().GetRef(),
+		Sha:                 ghpr.GetHead().GetSHA(),
+		State:               ghpr.GetState(),
+		URL:                 ghpr.GetURL(),
+		CreatedAt:           ghpr.GetCreatedAt(),
+		Merged:              gogithub.Bool(ghpr.GetMerged()),
+		MergeCommitSHA:      ghpr.GetMergeCommitSHA(),
+		MaintainerCanModify: gogithub.Bool(ghpr.GetMaintainerCanModify()),
+		MilestoneNumber:     gogithub.Int64(int64(ghpr.GetMilestone().GetNumber())),
+		MilestoneTitle:      gogithub.String(ghpr.GetMilestone().GetTitle()),
+	}
+}
+
+func (gau *githubAPIUser) NewRepository(ghrepo *gogithub.Repository) *Repository {
+	return &Repository{
+		impl:  &defaultRepoImplementation{},
+		Owner: ghrepo.GetOwner().GetLogin(),
+		Name:  ghrepo.GetName(),
+	}
+}
+
 type Options struct {
 }
 

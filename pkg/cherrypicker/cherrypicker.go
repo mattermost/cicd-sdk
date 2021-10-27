@@ -82,15 +82,9 @@ type State struct {
 // Actual implementation of the CP interfaces
 type cherryPickerImplementation interface {
 	initialize(context.Context, *State, *Options) error
-	readPRcommits(context.Context, *State, *Options, *github.PullRequest) ([]*github.Commit, error)
 	createBranch(*State, *Options, string, *github.PullRequest) (string, error)
 	cherrypickCommits(*State, *Options, string, []string) error
 	cherrypickMergeCommit(*State, *Options, string, []string, int) error
-	getPRMergeMode(context.Context, *State, *Options, *github.PullRequest, []*github.Commit) (string, error)
-	findCommitPatchTree(context.Context, *State, *Options, *github.PullRequest, []*github.Commit) (int, error)
-	GetRebaseCommits(context.Context, *State, *Options, *github.PullRequest, []*github.Commit) ([]string, error)
-	getPullRequest(context.Context, *State, *Options, int) (*github.PullRequest, error)
-	createPullRequest(context.Context, *State, *Options, *github.PullRequest, string, string) (*github.PullRequest, error)
 	pushFeatureBranch(*State, *Options, string) error
 }
 
@@ -126,20 +120,13 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	}
 
 	// Fetch the pull request
-	pr, err := cp.impl.getPullRequest(ctx, &cp.state, &cp.options, prNumber)
+	pr, err := cp.state.repo.GetPullRequest(ctx, prNumber)
 	if err != nil {
 		return errors.Wrapf(err, "getting pull request %d", prNumber)
 	}
 
-	// The first thing we need to create the CPs is to pull the commits
-	// from the pull request
-	commits, err := cp.impl.readPRcommits(ctx, &cp.state, &cp.options, pr)
-	if err != nil {
-		return errors.Wrapf(err, "reading commits from PR #%d", pr.Number)
-	}
-
 	// Next step: Find out how the PR was merged
-	mergeMode, err := cp.impl.getPRMergeMode(ctx, &cp.state, &cp.options, pr, commits)
+	mergeMode, err := pr.GetMergeMode(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "getting merge mode for PR #%d", pr.Number)
 	}
@@ -164,7 +151,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	// the `merge_commit_sha` but we have to find out which parent's tree we want
 	// to generate the diff from:
 	if mergeMode == MERGE {
-		parent, err2 := cp.impl.findCommitPatchTree(ctx, &cp.state, &cp.options, pr, commits)
+		parent, err2 := pr.PatchTreeID(ctx)
 		if err2 != nil {
 			return errors.Wrap(err2, "searching for parent patch tree")
 		}
@@ -177,7 +164,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	// merge commit and go back in the git log to find the previous trees and
 	// CP the commits where they merged
 	if mergeMode == REBASE {
-		rebaseCommits, err2 := cp.impl.GetRebaseCommits(ctx, &cp.state, &cp.options, pr, commits)
+		rebaseCommits, err2 := pr.GetRebaseCommits(ctx)
 		if err2 != nil {
 			return errors.Wrapf(err2, "while getting commits in rebase from PR #%d", pr.Number)
 		}
@@ -200,8 +187,11 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	}
 
 	// Create the pull request
-	pullrequest, err := cp.impl.createPullRequest(
-		ctx, &cp.state, &cp.options, pr, featureBranch, branch,
+	pullrequest, err := cp.state.repo.CreatePullRequest(
+		ctx, featureBranch, branch,
+		fmt.Sprintf(prTitleTemplate, prNumber, branch),
+		fmt.Sprintf(prBodyTemplate, prNumber, branch, prNumber, branch, pr.Username),
+		&github.NewPullRequestOptions{MaintainerCanModify: true},
 	)
 	if err != nil {
 		return errors.Wrap(err, "creating pull request in github")
@@ -213,22 +203,6 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 }
 
 type defaultCPImplementation struct{}
-
-// readPRcommits returns the SHAs of all commits in a PR
-func (impl *defaultCPImplementation) readPRcommits(
-	ctx context.Context, state *State, opts *Options, pr *github.PullRequest,
-) (commitList []*github.Commit, err error) {
-	// Fixme read response and add retries
-	commitList, _, err = state.github.ListCommits(
-		ctx, pr.RepoOwner, pr.RepoName, pr.Number,
-	)
-	if err != nil {
-		return nil, errors.Wrapf(err, "querying GitHub for commits in PR %d", pr.Number)
-	}
-
-	logrus.Info(fmt.Sprintf("Read %d commits from PR %d", len(commitList), pr.Number))
-	return commitList, nil
-}
 
 // createBranch creates the new branch for the cherry pick and
 // switches to it. The new branch is created frp, sourceBranch.
@@ -298,149 +272,6 @@ func (impl *defaultCPImplementation) cherrypickMergeCommit(
 	return nil
 }
 
-// findCommitPatchTree analyzes the parents of a merge commit and
-// returns the parent ID whose treee will be used to generate the
-// diff for the cherry pick.
-func (impl defaultCPImplementation) findCommitPatchTree(
-	ctx context.Context, state *State, opts *Options,
-	pr *github.PullRequest, commits []*github.Commit,
-) (parentNr int, err error) {
-	if len(commits) == 0 {
-		return 0, errors.New("unable to find patch tree, commit list is empty")
-	}
-	// They way to find out which tree to use is to search the tree from
-	// the last commit in the PR. The tree sha in the PR commit will match
-	// the tree in the PR parent
-
-	// Get the commit information
-	mergeCommit, err := state.repo.GetCommit(ctx, pr.MergeCommitSHA)
-	if err != nil {
-		return 0, errors.Wrapf(err, "querying GitHub for merge commit %s", pr.MergeCommitSHA)
-	}
-	if mergeCommit == nil {
-		return 0, errors.Errorf("commit returned empty when querying sha %s", pr.MergeCommitSHA)
-	}
-
-	// First, get the tree hash from the last commit in the PR
-	prTree := commits[len(commits)-1].GetCommit().GetTree()
-	prSHA := prTree.GetSHA()
-
-	// Now, cycle the parents, fetch their commits and see which one matches
-	// the tree hash extracted from the commit
-	for pn, parent := range mergeCommit.Parents {
-		parentCommit, err := state.repo.GetCommit(ctx, parent.SHA)
-		if err != nil {
-			return 0, errors.Wrapf(err, "querying GitHub for parent commit %s", parent.GetSHA())
-		}
-		if parentCommit == nil {
-			return 0, errors.Errorf("commit returned empty when querying sha %s", parent.GetSHA())
-		}
-
-		parentTree := parentCommit.Commit.GetTree()
-		logrus.Info(fmt.Sprintf("PR: %s - Parent: %s", prSHA, parentTree.GetSHA()))
-		if parentTree.GetSHA() == prSHA {
-			logrus.Info(fmt.Sprintf("Cherry pick to be performed diffing the parent #%d tree ", pn))
-			return pn, nil
-		}
-	}
-
-	// If not found, we return an error to make sure we don't use 0
-	return 0, errors.Errorf(
-		"unable to find patch tree of merge commit among %d parents", len(mergeCommit.Parents),
-	)
-}
-
-// GetRebaseCommits searches for the commits in the branch history
-// that match the modifications in the pull request
-func (impl *defaultCPImplementation) GetRebaseCommits(
-	ctx context.Context, state *State, opts *Options,
-	pr *github.PullRequest, prCommits []*github.RepositoryCommit) (commitSHAs []string, err error) {
-	// To find the commits, we take the last commit from the PR.
-	// The patch should match the commit int the pr `merge_commit_sha` field.
-	// From there we navigate backwards in the history ensuring all commits match
-	// patches from all commits.
-
-	// First, the merge_commit_sha commit:
-	branchCommit, err := impl.getCommit(
-		ctx, state,
-		pr.GetBase().GetRepo().GetOwner().GetLogin(),
-		pr.GetBase().GetRepo().GetName(),
-		pr.GetMergeCommitSHA(),
-	)
-	if err != nil {
-		return nil, errors.Wrapf(err, "querying GitHub for merge commit %s", pr.MergeCommitSHA)
-	}
-
-	commitSHAs = []string{}
-
-	// Now, lets cycle and make sure we have the right SHAs
-	for i := len(prCommits); i > 0; i-- {
-		// Get the shas from the trees. They should match
-		prTreeSHA := prCommits[i-1].GetCommit().GetTree().GetSHA()
-		branchTreeSha := branchCommit.GetCommit().GetTree().GetSHA()
-		if prTreeSHA != branchTreeSha {
-			return nil, errors.Errorf(
-				"Mismatch in PR and branch hashed in commit #%d PR:%s vs Branch:%s",
-				i, prTreeSHA, branchTreeSha,
-			)
-		}
-
-		logrus.Info(fmt.Sprintf("Match #%d PR:%s vs Branch:%s", i, prTreeSHA, branchTreeSha))
-
-		// Append the commit sha to the list (note not to use the *tree hash* here)
-		commitSHAs = append(commitSHAs, branchCommit.GetSHA())
-
-		// While we traverse the PR commits linearly, we follow
-		// the git graph to get the neext commit int th branch
-		branchCommit, err = impl.getCommit(
-			ctx, state,
-			pr.GetBase().GetRepo().GetOwner().GetLogin(),
-			pr.GetBase().GetRepo().GetName(),
-			branchCommit.Parents[0].GetSHA(),
-		)
-		if err != nil {
-			return nil, errors.Wrapf(
-				err, "while fetching branch commit #%d - %s", i, branchCommit.Parents[0].GetSHA(),
-			)
-		}
-	}
-
-	// Reverse the list of shas to preserve the PR order
-	for i, j := 0, len(commitSHAs)-1; i < j; i, j = i+1, j-1 {
-		commitSHAs[i], commitSHAs[j] = commitSHAs[j], commitSHAs[i]
-	}
-
-	return commitSHAs, nil
-}
-
-// getCommit gets info about a commit from the github API
-func (impl *defaultCPImplementation) getCommit(
-	ctx context.Context, state *State, owner, repo, commitSHA string,
-) (cmt *github.Commit, err error) {
-	// Get the commit from the API:
-	cmt, _, err = state.github.Repositories.GetCommit(ctx, owner, repo, commitSHA)
-	if err != nil {
-		return nil, errors.Wrapf(err, "querying GitHub for commit %s", commitSHA)
-	}
-	if cmt == nil {
-		return nil, errors.Errorf("commit returned empty when querying sha %s", commitSHA)
-	}
-
-	return cmt, nil
-}
-
-// getPullRequest fetches a pull request from GitHub
-func (impl *defaultCPImplementation) getPullRequest(
-	ctx context.Context, state *State, opts *Options, prNumber int,
-) (*github.PullRequest, error) {
-	pr, _, err := state.github.PullRequests.Get(
-		ctx, opts.RepoOwner, opts.RepoName, prNumber)
-	if err != nil {
-		return nil, errors.Wrapf(err, "getting pull request %d from GitHub", prNumber)
-	}
-	return pr, nil
-}
-
 // pushFeatureBranch pushes thw new branch with the CPs to the remote
 func (impl *defaultCPImplementation) pushFeatureBranch(
 	state *State, opts *Options, featureBranch string,
@@ -453,34 +284,4 @@ func (impl *defaultCPImplementation) pushFeatureBranch(
 	}
 	logrus.Info(fmt.Sprintf("Successfully pushed %s to remote %s", featureBranch, opts.Remote))
 	return nil
-}
-
-// createPullRequest cresates the cherry-picks pull request
-func (impl *defaultCPImplementation) createPullRequest(
-	ctx context.Context, state *State, opts *Options, pr *github.PullRequest, featureBranch, baseBranch string,
-) (*github.PullRequest, error) {
-	// We will pass the branchname to git
-	headBranchName := featureBranch
-	// Unless a fork is defined in the options. IN this case we append the fork Org
-	// to the branch and use that as the head branch
-	if opts.ForkOwner != "" {
-		headBranchName = fmt.Sprintf("%s:%s", opts.ForkOwner, featureBranch)
-	}
-	title := fmt.Sprintf(prTitleTemplate, pr.Number, baseBranch)
-	body := fmt.Sprintf(prBodyTemplate, pr.Number, baseBranch, pr.Number, baseBranch, pr.Username)
-	newPullRequest := &github.NewPullRequest{
-		Title:               &title,
-		Head:                &headBranchName,
-		Base:                &baseBranch,
-		Body:                &body,
-		MaintainerCanModify: github.Bool(true),
-	}
-
-	// Send the PR to GItHub:
-	pullrequest, _, err := state.github.CreatePullRequest(ctx, opts.RepoOwner, opts.RepoName, newPullRequest)
-	if err != nil {
-		return pullrequest, errors.Wrap(err, "creating pull request")
-	}
-
-	return pullrequest, nil
 }
