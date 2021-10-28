@@ -98,6 +98,17 @@ func (gau *githubAPIUser) NewRepository(ghrepo *gogithub.Repository) *Repository
 	}
 }
 
+func (gau *githubAPIUser) NewIssue(ghissue *gogithub.Issue) *Issue {
+	return &Issue{
+		impl:      &defaultIssueImplementation{},
+		RepoOwner: ghissue.GetRepository().GetOwner().GetLogin(),
+		RepoName:  ghissue.GetRepository().GetName(),
+		Number:    ghissue.GetNumber(),
+		Username:  ghissue.GetUser().GetLogin(),
+		State:     ghissue.GetState(),
+	}
+}
+
 type Options struct{}
 
 var defaultOptions = Options{}
