@@ -36,7 +36,6 @@ func (impl *defaultPRImplementation) loadRepository(ctx context.Context, pr *Pul
 func (impl *defaultPRImplementation) getMergeMode(
 	ctx context.Context, pr *PullRequest, commits []*Commit,
 ) (mode string, err error) {
-
 	if pr.GetRepository(ctx) == nil {
 		return "", errors.New("unable to get merge mode, pull request has no repo")
 	}
@@ -96,7 +95,7 @@ func (impl *defaultPRImplementation) getMergeMode(
 
 // getCommits returns the commits of the PR
 func (impl *defaultPRImplementation) getCommits(ctx context.Context, pr *PullRequest) ([]*Commit, error) {
-	// Fixme read response and add retries
+	// Todo: Fixme read response and add retries
 	commitList, _, err := impl.githubAPIUser.GitHubClient().PullRequests.ListCommits(
 		ctx, pr.RepoOwner, pr.RepoName, pr.Number, &gogithub.ListOptions{},
 	)
@@ -118,7 +117,7 @@ func (impl *defaultPRImplementation) getCommits(ctx context.Context, pr *PullReq
 // the cherry pick.
 //
 // A merge commit has a Patch Tree and a Branch Tree (correct these names)
-// if there is another, more official or appropiate nomenclature.
+// if there is another, more official or appropriate nomenclature.
 func (impl *defaultPRImplementation) findPatchTree(
 	ctx context.Context, pr *PullRequest,
 ) (parentNr int, err error) {

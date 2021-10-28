@@ -29,7 +29,6 @@ func (di *defaultRepoImplementation) getPullRequest(ctx context.Context, owner, 
 	}
 
 	return di.githubAPIUser.NewPullRequest(ghPr), nil
-
 }
 
 func (di *defaultRepoImplementation) createPullRequest(

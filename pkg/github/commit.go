@@ -16,5 +16,4 @@ type Commit struct {
 	TreeSHA string    // SHA of the commmit's tree
 }
 
-type CommitImplementation interface {
-}
+type CommitImplementation interface{}

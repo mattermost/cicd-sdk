@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func getTestImplementation(t *testing.T) *defaultGithubImplementation {
+func getTestImplementation() *defaultGithubImplementation {
 	return &defaultGithubImplementation{
 		client: gogithub.NewClient(http.DefaultClient),
 	}
@@ -20,7 +20,7 @@ func getTestImplementation(t *testing.T) *defaultGithubImplementation {
 
 func TestGetPullRequestFromAPI(t *testing.T) {
 	// Getch a commit from GH and check the variable assignments
-	gh := getTestImplementation(t)
+	gh := getTestImplementation()
 	pr, err := gh.getPullRequestFromAPI(context.Background(), "mattermost", "mattermost-server", 1)
 	require.Nil(t, err)
 	require.NotNil(t, pr)
