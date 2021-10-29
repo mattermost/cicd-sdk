@@ -24,7 +24,6 @@ func NewRepository(owner, name string) *Repository {
 		Name:  name,
 		impl:  &defaultRepoImplementation{},
 	}
-
 }
 
 type repositoryImplementation interface {
@@ -47,7 +46,6 @@ func (repo *Repository) CreatePullRequest(
 	return repo.impl.createPullRequest(
 		ctx, repo.Owner, repo.Name, head, base, title, body, opts,
 	)
-
 }
 
 // GetCommit fteches from the repository the commit at sha

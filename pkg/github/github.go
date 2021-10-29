@@ -13,7 +13,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const GITHUB_TOKEN = "GITHUB_TOKEN"
+const githubTknVar = "GITHUB_TOKEN"
 
 type GitHub struct {
 	impl    githubImplementation
@@ -42,7 +42,7 @@ type githubAPIUser struct {
 func (gau *githubAPIUser) GitHubClient() *gogithub.Client {
 	if gau.client == nil {
 		httpClient := http.DefaultClient
-		tkn := os.Getenv(GITHUB_TOKEN)
+		tkn := os.Getenv(githubTknVar)
 		if tkn == "" {
 			logrus.Warn("Note: GitHub client will not be authenticated")
 		} else {
@@ -98,8 +98,18 @@ func (gau *githubAPIUser) NewRepository(ghrepo *gogithub.Repository) *Repository
 	}
 }
 
-type Options struct {
+func (gau *githubAPIUser) NewIssue(ghissue *gogithub.Issue) *Issue {
+	return &Issue{
+		impl:      &defaultIssueImplementation{},
+		RepoOwner: ghissue.GetRepository().GetOwner().GetLogin(),
+		RepoName:  ghissue.GetRepository().GetName(),
+		Number:    ghissue.GetNumber(),
+		Username:  ghissue.GetUser().GetLogin(),
+		State:     ghissue.GetState(),
+	}
 }
+
+type Options struct{}
 
 var defaultOptions = Options{}
 

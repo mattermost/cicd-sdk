@@ -36,7 +36,7 @@ Cherry pick of #%d on %s.
 type CherryPicker struct {
 	impl    cherryPickerImplementation
 	state   State
-	options Options
+	options *Options
 }
 
 // NewCherryPicker returns a cherrypicker with default opts
@@ -45,7 +45,7 @@ func NewCherryPicker() *CherryPicker {
 }
 
 // NewCherryPicker returns a cherrypicker with default opts
-func NewCherryPickerWithOptions(opts Options) *CherryPicker {
+func NewCherryPickerWithOptions(opts *Options) *CherryPicker {
 	if opts.Remote == "" {
 		opts.Remote = defaultCherryPickerOpts.Remote
 	}
@@ -67,7 +67,7 @@ type Options struct {
 	Remote    string
 }
 
-var defaultCherryPickerOpts = Options{
+var defaultCherryPickerOpts = &Options{
 	RepoPath:  ".",
 	Remote:    "origin",
 	ForkOwner: "",
@@ -115,7 +115,7 @@ func (cp *CherryPicker) CreateCherryPickPR(prNumber int, branch string) error {
 
 // CreateCherryPickPR creates a cherry-pick PR to the the given branch
 func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNumber int, branch string) error {
-	if err := cp.impl.initialize(ctx, &cp.state, &cp.options); err != nil {
+	if err := cp.impl.initialize(ctx, &cp.state, cp.options); err != nil {
 		return errors.Wrap(err, "verifying environment")
 	}
 
@@ -132,7 +132,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	}
 
 	// Create the CP branch
-	featureBranch, err := cp.impl.createBranch(&cp.state, &cp.options, branch, pr)
+	featureBranch, err := cp.impl.createBranch(&cp.state, cp.options, branch, pr)
 	if err != nil {
 		return errors.Wrap(err, "creating the feature branch")
 	}
@@ -143,7 +143,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	// the sha returned in merge_commit_sha
 	if mergeMode == SQUASH {
 		cpError = cp.impl.cherrypickCommits(
-			&cp.state, &cp.options, branch, []string{pr.MergeCommitSHA},
+			&cp.state, cp.options, branch, []string{pr.MergeCommitSHA},
 		)
 	}
 
@@ -156,7 +156,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 			return errors.Wrap(err2, "searching for parent patch tree")
 		}
 		cpError = cp.impl.cherrypickMergeCommit(
-			&cp.state, &cp.options, branch, []string{pr.MergeCommitSHA}, parent,
+			&cp.state, cp.options, branch, []string{pr.MergeCommitSHA}, parent,
 		)
 	}
 
@@ -174,7 +174,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 		}
 
 		cpError = cp.impl.cherrypickCommits(
-			&cp.state, &cp.options, branch, rebaseCommits,
+			&cp.state, cp.options, branch, rebaseCommits,
 		)
 	}
 
@@ -182,7 +182,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 		return errors.Errorf("while cherrypicking pull request %d of type %s", pr.Number, mergeMode)
 	}
 
-	if err = cp.impl.pushFeatureBranch(&cp.state, &cp.options, featureBranch); err != nil {
+	if err = cp.impl.pushFeatureBranch(&cp.state, cp.options, featureBranch); err != nil {
 		return errors.Wrap(err, "pushing branch to git remote")
 	}
 
@@ -241,7 +241,7 @@ func (impl *defaultCPImplementation) cherrypickCommits(
 ) (err error) {
 	logrus.Infof("Cherry picking %d commits to branch %s", len(commits), branch)
 	cmd := command.NewWithWorkDir(opts.RepoPath, gitCommand, append([]string{"cherry-pick"}, commits...)...)
-	if _, err = cmd.RunSilent(); err != nil {
+	if err = cmd.RunSilentSuccess(); err != nil {
 		return errors.Wrap(err, "running git cherry-pick")
 	}
 
