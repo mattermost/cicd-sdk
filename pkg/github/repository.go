@@ -28,6 +28,7 @@ func NewRepository(owner, name string) *Repository {
 
 type repositoryImplementation interface {
 	getPullRequest(ctx context.Context, owner, repo string, number int) (pr *PullRequest, err error)
+	getIssue(ctx context.Context, owner, repo string, number int) (issue *Issue, err error)
 	getCommit(ctx context.Context, owner string, repo string, sha string) (commit *Commit, err error)
 	createPullRequest(
 		ctx context.Context, owner, repo, head, base, title, body string, opts *NewPullRequestOptions,

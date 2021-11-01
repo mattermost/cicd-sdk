@@ -8,6 +8,7 @@ import (
 
 	gogithub "github.com/google/go-github/v39/github"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type defaultRepoImplementation struct {
@@ -22,13 +23,28 @@ func (di *defaultRepoImplementation) getCommit(ctx context.Context, owner, repo,
 	return di.githubAPIUser.NewCommit(repoCommit.Commit), nil
 }
 
-func (di *defaultRepoImplementation) getPullRequest(ctx context.Context, owner, repo string, number int) (pr *PullRequest, err error) {
+// getPullRequest pulls a PR from the GitHub API and return a PullRequest object
+func (di *defaultRepoImplementation) getPullRequest(ctx context.Context, owner, repo string, number int) (*PullRequest, error) {
 	ghPr, _, err := di.githubAPIUser.GitHubClient().PullRequests.Get(ctx, owner, repo, number)
 	if err != nil {
 		return nil, errors.Wrapf(err, "fetching PR #%d from github api", number)
 	}
 
 	return di.githubAPIUser.NewPullRequest(ghPr), nil
+}
+
+// getIssue queries github for an issue and return the
+func (di *defaultRepoImplementation) getIssue(ctx context.Context, owner, repo string, number int) (*Issue, error) {
+	ghIssue, _, err := di.githubAPIUser.GitHubClient().Issues.Get(ctx, owner, repo, number)
+	logrus.Infof("%+v", ghIssue)
+	if err != nil {
+		return nil, errors.Wrapf(err, "fetching issue #%d from github api", number)
+	}
+
+	i := di.githubAPIUser.NewIssue(ghIssue)
+	i.RepoName = repo
+	i.RepoOwner = owner
+	return i, nil
 }
 
 func (di *defaultRepoImplementation) createPullRequest(
