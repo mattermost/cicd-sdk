@@ -8,8 +8,8 @@ import (
 	"time"
 
 	git "github.com/go-git/go-git/v5"
+	"github.com/mattermost/cicd-sdk/pkg/github"
 	"github.com/pkg/errors"
-	"github.com/puerco/mattermod-refactor/pkg/github"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/release-utils/command"
 	"sigs.k8s.io/release-utils/util"

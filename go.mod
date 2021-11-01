@@ -1,10 +1,9 @@
-module github.com/puerco/mattermod-refactor
+module github.com/mattermost/cicd-sdk
 
 go 1.16
 
 require (
 	github.com/go-git/go-git/v5 v5.4.2
-	github.com/google/go-github/v33 v33.0.0
 	github.com/google/go-github/v39 v39.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1

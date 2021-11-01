@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	git "github.com/go-git/go-git/v5"
-	"github.com/puerco/mattermod-refactor/pkg/github"
+	"github.com/mattermost/cicd-sdk/pkg/github"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
