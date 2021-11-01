@@ -3,4 +3,6 @@
 
 package github
 
-type defaultIssueImplementation struct{}
+type defaultIssueImplementation struct {
+	githubAPIUser
+}
