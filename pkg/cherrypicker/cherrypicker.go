@@ -39,13 +39,13 @@ type CherryPicker struct {
 	options *Options
 }
 
-// NewCherryPicker returns a cherrypicker with default opts
-func NewCherryPicker() *CherryPicker {
-	return NewCherryPickerWithOptions(defaultCherryPickerOpts)
+// New returns a cherrypicker with default opts
+func New() *CherryPicker {
+	return NewWithOptions(defaultCherryPickerOpts)
 }
 
 // NewCherryPicker returns a cherrypicker with default opts
-func NewCherryPickerWithOptions(opts *Options) *CherryPicker {
+func NewWithOptions(opts *Options) *CherryPicker {
 	if opts.Remote == "" {
 		opts.Remote = defaultCherryPickerOpts.Remote
 	}
