@@ -3,11 +3,11 @@ package cherrypicker
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
-	git "github.com/go-git/go-git/v5"
+	"github.com/mattermost/cicd-sdk/pkg/git"
 	"github.com/mattermost/cicd-sdk/pkg/github"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -74,37 +74,56 @@ var defaultCherryPickerOpts = &Options{
 }
 
 type State struct {
-	Repository *git.Repository    // Repo object to
-	github     *github.GitHub     // go-github client
-	repo       *github.Repository // Repository where the cherrypicker will operate
+	github *github.GitHub  // github client
+	git    *git.Git        // git client
+	repo   *git.Repository // Repository where the cherrypicker will operate
+	ghrepo *github.Repository
 }
 
 // Actual implementation of the CP interfaces
 type cherryPickerImplementation interface {
 	initialize(context.Context, *State, *Options) error
 	createBranch(*State, *Options, string, *github.PullRequest) (string, error)
-	cherrypickCommits(*State, *Options, string, []string) error
-	cherrypickMergeCommit(*State, *Options, string, []string, int) error
+	cherrypickCommits(*State, *Options, []string, string) error
+	cherrypickMergeCommit(*State, *Options, string, string, int) error
 	pushFeatureBranch(*State, *Options, string) error
 }
 
 // Initialize checks the environment and populates the state
-func (impl *defaultCPImplementation) initialize(ctx context.Context, state *State, opts *Options) error {
+func (impl *defaultCPImplementation) initialize(ctx context.Context, state *State, opts *Options) (err error) {
 	state.github = github.New()
+	state.git = git.New()
 
 	// Check the repository path exists
 	if util.Exists(filepath.Join(opts.RepoPath, rebaseMagic)) {
 		return errors.New("there is a rebase in progress, unable to cherry pick at this time")
 	}
 
-	// Open the repo
-	repo, err := git.PlainOpen(opts.RepoPath)
+	state.ghrepo = github.NewRepository(opts.RepoOwner, opts.RepoName)
+
+	// TODO: Add a bit more checks to the current repo state
+
+	var repo *git.Repository
+	// If we do not have a path to the repository, we clone the repo
+	if opts.RepoPath == "" {
+		tmpDir, err2 := os.MkdirTemp("", "git-repo-tmpclone-")
+		if err2 != nil {
+			return errors.Wrap(err, "while cloning repository")
+		}
+		logrus.Debugf("cloning %s/%s to %s", opts.RepoOwner, opts.RepoName, opts.RepoPath)
+		repo, err = state.git.CloneRepo(git.GitHubURL(opts.RepoOwner, opts.RepoName), tmpDir)
+	} else {
+		// Open an existing repository
+		repo, err = state.git.OpenRepo(opts.RepoPath)
+	}
 	if err != nil {
-		return errors.Wrapf(err, "opening repository from %s", opts.RepoPath)
+		return errors.Wrapf(
+			err, "opening or cloning repo %s/%s", opts.RepoOwner, opts.RepoName,
+		)
 	}
 
 	// And add it to the state
-	state.Repository = repo
+	state.repo = repo
 	return nil
 }
 
@@ -120,7 +139,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	}
 
 	// Fetch the pull request
-	pr, err := cp.state.repo.GetPullRequest(ctx, prNumber)
+	pr, err := cp.state.ghrepo.GetPullRequest(ctx, prNumber)
 	if err != nil {
 		return errors.Wrapf(err, "getting pull request %d", prNumber)
 	}
@@ -143,7 +162,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	// the sha returned in merge_commit_sha
 	if mergeMode == SQUASH {
 		cpError = cp.impl.cherrypickCommits(
-			&cp.state, cp.options, branch, []string{pr.MergeCommitSHA},
+			&cp.state, cp.options, []string{pr.MergeCommitSHA}, branch,
 		)
 	}
 
@@ -156,7 +175,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 			return errors.Wrap(err2, "searching for parent patch tree")
 		}
 		cpError = cp.impl.cherrypickMergeCommit(
-			&cp.state, cp.options, branch, []string{pr.MergeCommitSHA}, parent,
+			&cp.state, cp.options, branch, pr.MergeCommitSHA, parent,
 		)
 	}
 
@@ -174,7 +193,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 		}
 
 		cpError = cp.impl.cherrypickCommits(
-			&cp.state, cp.options, branch, rebaseCommits,
+			&cp.state, cp.options, rebaseCommits, branch,
 		)
 	}
 
@@ -187,7 +206,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	}
 
 	// Create the pull request
-	pullrequest, err := cp.state.repo.CreatePullRequest(
+	pullrequest, err := cp.state.ghrepo.CreatePullRequest(
 		ctx, featureBranch, branch,
 		fmt.Sprintf(prTitleTemplate, prNumber, branch),
 		fmt.Sprintf(prBodyTemplate, prNumber, branch, prNumber, branch, pr.Username),
@@ -218,16 +237,8 @@ func (impl *defaultCPImplementation) createBranch(
 		return "", errors.Wrapf(err, "switching to source branch %s", sourceBranch)
 	}
 
-	// Create the new branch:
-	if err := command.NewWithWorkDir(
-		opts.RepoPath, gitCommand, "branch", branchName).RunSilentSuccess(); err != nil {
-		return "", errors.Wrap(err, "creating CP branch")
-	}
-
-	// Create the new branch:
-	if err := command.NewWithWorkDir(
-		opts.RepoPath, gitCommand, "checkout", branchName).RunSilentSuccess(); err != nil {
-		return "", errors.Wrap(err, "creating CP branch")
+	if err := state.repo.CreateBranch(branchName); err != nil {
+		return "", errors.Wrap(err, "creating cherry pick branch")
 	}
 
 	logrus.Info("created cherry-pick feature branch " + branchName)
@@ -237,37 +248,34 @@ func (impl *defaultCPImplementation) createBranch(
 // cherrypickCommits calls the git command via the shell to cherry-pick the list of
 // commits passed into the current repository path.
 func (impl *defaultCPImplementation) cherrypickCommits(
-	state *State, opts *Options, branch string, commits []string,
+	state *State, opts *Options, commits []string, branch string,
 ) (err error) {
 	logrus.Infof("Cherry picking %d commits to branch %s", len(commits), branch)
-	cmd := command.NewWithWorkDir(opts.RepoPath, gitCommand, append([]string{"cherry-pick"}, commits...)...)
-	if err = cmd.RunSilentSuccess(); err != nil {
-		return errors.Wrap(err, "running git cherry-pick")
+	if err := state.repo.CherryPickCommits(commits, branch); err != nil {
+		return errors.Wrapf(err, "cherry picking %d commits to %s", len(commits), branch)
 	}
-
-	// Check if the cp was halted due to unmerged commits
-	output, err := command.NewWithWorkDir(
-		opts.RepoPath, gitCommand, "status", "--porcelain",
-	).RunSuccessOutput()
+	conflicts, _, err := state.repo.HasMergeConflicts()
 	if err != nil {
-		return errors.Wrap(err, "while trying to look for merge conflicts")
+		return errors.Wrap(err, "checking for conflicts")
 	}
-	for _, line := range strings.Split(output.Output(), "\n") {
-		if strings.HasPrefix(line, "U") {
-			return errors.Errorf("conflicts detected, cannot merge:\n%s", output.Output())
-		}
+	if conflicts {
+		return errors.Wrap(err, "conflicts found while cherrypicking")
 	}
 	return nil
 }
 
 func (impl *defaultCPImplementation) cherrypickMergeCommit(
-	state *State, opts *Options, branch string, commits []string, parent int,
+	state *State, opts *Options, branch, commit string, parent int,
 ) (err error) {
-	cmd := command.NewWithWorkDir(
-		opts.RepoPath, gitCommand, append([]string{"cherry-pick", "-m", fmt.Sprintf("%d", parent)}, commits...)...,
-	)
-	if err = cmd.RunSuccess(); err != nil {
-		return errors.Wrap(err, "running git cherry-pick")
+	if err := state.repo.CherryPickMergeCommit(branch, commit, parent); err != nil {
+		return errors.Wrapf(err, "cherry-picking merge commit %s into %s", commit, branch)
+	}
+	conflicts, _, err := state.repo.HasMergeConflicts()
+	if err != nil {
+		return errors.Wrap(err, "checking for conflicts")
+	}
+	if conflicts {
+		return errors.Wrap(err, "conflicts found while cherrypicking")
 	}
 	return nil
 }
@@ -276,11 +284,8 @@ func (impl *defaultCPImplementation) cherrypickMergeCommit(
 func (impl *defaultCPImplementation) pushFeatureBranch(
 	state *State, opts *Options, featureBranch string,
 ) error {
-	// Push the feature branch to the specified remote
-	if err := command.NewWithWorkDir(
-		opts.RepoPath, gitCommand, "push", opts.Remote, featureBranch,
-	).RunSilentSuccess(); err != nil {
-		return errors.Wrapf(err, "pushing branch %s to remote %s", featureBranch, opts.Remote)
+	if err := state.repo.PushBranch(featureBranch, opts.Remote); err != nil {
+		return errors.Wrap(err, "pushing CP feature branch")
 	}
 	logrus.Info(fmt.Sprintf("Successfully pushed %s to remote %s", featureBranch, opts.Remote))
 	return nil
