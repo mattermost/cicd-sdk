@@ -21,16 +21,17 @@ func createTestRepo(t *testing.T) string {
 }
 
 func TestCloneRepository(t *testing.T) {
+	const testRepo = "https://github.com/mattermost/.github.git"
 	impl := defaultGitImpl{}
 	dir, err := os.MkdirTemp("", "test-git-clone-")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
-	repo, err := impl.cloneRepo("git@github.com:mattermost/.github.git", dir)
+	repo, err := impl.cloneRepo(testRepo, dir)
 	require.NoError(t, err)
 
 	r, err := repo.client.Remote("origin")
 	require.NoError(t, err)
-	require.Contains(t, r.String(), "git@github.com:mattermost/.github.git")
+	require.Contains(t, r.String(), testRepo)
 	require.DirExists(t, filepath.Join(dir, ".git"))
 	require.FileExists(t, filepath.Join(dir, "README.md"))
 }
