@@ -5,6 +5,8 @@ package github
 
 type Issue struct {
 	impl      IssueImplementation
+	Title     string
+	Body      string
 	RepoOwner string
 	RepoName  string
 	Username  string

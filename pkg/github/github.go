@@ -101,6 +101,8 @@ func (gau *githubAPIUser) NewRepository(ghrepo *gogithub.Repository) *Repository
 func (gau *githubAPIUser) NewIssue(ghissue *gogithub.Issue) *Issue {
 	return &Issue{
 		impl:      &defaultIssueImplementation{},
+		Title:     ghissue.GetTitle(),
+		Body:      ghissue.GetBody(),
 		RepoOwner: ghissue.GetRepository().GetOwner().GetLogin(),
 		RepoName:  ghissue.GetRepository().GetName(),
 		Number:    ghissue.GetNumber(),
