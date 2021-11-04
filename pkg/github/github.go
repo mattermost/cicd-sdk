@@ -7,7 +7,12 @@ import (
 	"context"
 )
 
-const githubTknVar = "GITHUB_TOKEN"
+const (
+	githubTknVar = "GITHUB_TOKEN"
+	MMREBASE     = "rebase"
+	MMMERGE      = "merge"
+	MMSQUASH     = "squash"
+)
 
 type GitHub struct {
 	impl    githubImplementation
