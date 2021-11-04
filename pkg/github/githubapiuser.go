@@ -41,7 +41,6 @@ func (gau *githubAPIUser) GitHubClient() *gogithub.Client {
 
 func (gau *githubAPIUser) NewCommitFromRepoCommit(rcommit *gogithub.RepositoryCommit) *Commit {
 	c := gau.NewCommit(rcommit.Commit)
-	logrus.Infof("Tenemos %d parents", len(rcommit.Parents))
 	for _, parent := range rcommit.Parents {
 		c.Parents = append(c.Parents, gau.NewCommit(parent))
 	}
