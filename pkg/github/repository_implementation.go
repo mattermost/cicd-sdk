@@ -8,7 +8,6 @@ import (
 
 	gogithub "github.com/google/go-github/v39/github"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 )
 
 type defaultRepoImplementation struct {
@@ -20,7 +19,7 @@ func (di *defaultRepoImplementation) getCommit(ctx context.Context, owner, repo,
 	if err != nil {
 		return nil, errors.Wrap(err, "fetching commit from github API")
 	}
-	return di.githubAPIUser.NewCommit(repoCommit.Commit), nil
+	return di.githubAPIUser.NewCommitFromRepoCommit(repoCommit), nil
 }
 
 // getPullRequest pulls a PR from the GitHub API and return a PullRequest object
@@ -36,7 +35,6 @@ func (di *defaultRepoImplementation) getPullRequest(ctx context.Context, owner, 
 // getIssue queries github for an issue and return the
 func (di *defaultRepoImplementation) getIssue(ctx context.Context, owner, repo string, number int) (*Issue, error) {
 	ghIssue, _, err := di.githubAPIUser.GitHubClient().Issues.Get(ctx, owner, repo, number)
-	logrus.Infof("%+v", ghIssue)
 	if err != nil {
 		return nil, errors.Wrapf(err, "fetching issue #%d from github api", number)
 	}

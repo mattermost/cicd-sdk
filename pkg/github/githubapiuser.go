@@ -39,15 +39,21 @@ func (gau *githubAPIUser) GitHubClient() *gogithub.Client {
 	return gau.client
 }
 
-func (gau *githubAPIUser) NewCommit(commit *gogithub.Commit) *Commit {
-	c := &Commit{
-		SHA:     commit.GetSHA(),
-		Parents: []*Commit{},
-		TreeSHA: commit.GetTree().GetSHA(),
-	}
-
-	for _, parent := range commit.Parents {
+func (gau *githubAPIUser) NewCommitFromRepoCommit(rcommit *gogithub.RepositoryCommit) *Commit {
+	c := gau.NewCommit(rcommit.Commit)
+	logrus.Infof("Tenemos %d parents", len(rcommit.Parents))
+	for _, parent := range rcommit.Parents {
 		c.Parents = append(c.Parents, gau.NewCommit(parent))
+	}
+	c.SHA = rcommit.GetSHA()
+	return c
+}
+
+func (gau *githubAPIUser) NewCommit(ghcommit *gogithub.Commit) *Commit {
+	c := &Commit{
+		SHA:     ghcommit.GetSHA(),
+		Parents: []*Commit{},
+		TreeSHA: ghcommit.GetTree().GetSHA(),
 	}
 	return c
 }
