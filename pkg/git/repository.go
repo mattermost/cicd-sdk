@@ -111,18 +111,6 @@ func (di *defaultRepositoryImpl) statusRaw(opts *RepoOptions) (string, error) {
 // createBranch creates a new Branch in the repo
 func (di *defaultRepositoryImpl) createBranch(client *gogit.Repository, opts *RepoOptions, branchName string) error {
 	logrus.Infof("Creating branch %s at %s", branchName, plumbing.NewBranchReferenceName(branchName))
-	// nolint: gocritic
-	/*
-		// PUre go implementation. Not working yet
-		if err := client.CreateBranch(&config.Branch{
-			Name:   branchName,
-			Merge:  plumbing.NewBranchReferenceName(branchName),
-			Remote: opts.DefaultRemote,
-		}); err != nil {
-			return errors.Wrapf(err, "creating new branch %s", branchName)
-		}
-		logrus.Infof("Created branch %s", branchName)
-	*/
 	return errors.Wrap(
 		command.NewWithWorkDir(opts.Path, gitCommand, "branch", branchName).RunSilentSuccess(),
 		"creating branch",
@@ -192,19 +180,11 @@ func (di *defaultRepositoryImpl) cherryPickMergeCommit(
 func (di *defaultRepositoryImpl) checkout(client *gogit.Repository, opts *RepoOptions, refName string) error {
 	logrus.Infof("Checking out branch %s", refName)
 	// Switch to the sourceBranch, this ensures it exists and from there we branch
-	tree, err := client.Worktree()
-	if err != nil {
-		return errors.Wrap(err, "getting repository worktree")
+	// TODO: Return to to go-git implementation
+	if err := command.NewWithWorkDir(
+		opts.Path, gitCommand, "checkout", refName).RunSilentSuccess(); err != nil {
+		return errors.Wrapf(err, "switching to source branch %s", refName)
 	}
-	// TODO: Check if reference is a hash and use that
-	if err := tree.Checkout(
-		&gogit.CheckoutOptions{
-			Branch: plumbing.NewBranchReferenceName(refName),
-		},
-	); err != nil {
-		return errors.Wrapf(err, "checking out %s", refName)
-	}
-
 	return nil
 }
 
