@@ -19,9 +19,6 @@ const (
 	gitCommand      = "git"
 	rebaseMagic     = ".git/rebase-apply"
 	newBranchSlug   = "automated-cherry-pick-of-"
-	REBASE          = "rebase"
-	MERGE           = "merge"
-	SQUASH          = "squash"
 	prTitleTemplate = "Automated cherry pick of #%d on %s"
 	prBodyTemplate  = `Automated cherry pick of #%d on %s
 
@@ -87,6 +84,11 @@ type cherryPickerImplementation interface {
 	cherrypickCommits(*State, *Options, []string, string) error
 	cherrypickMergeCommit(*State, *Options, string, string, int) error
 	pushFeatureBranch(*State, *Options, string) error
+	getPullRequest(context.Context, int, *github.Repository) (*github.PullRequest, error)
+	getMergeMode(context.Context, *github.PullRequest) (string, error)
+	cherryPickRebasedPR(context.Context, *State, *Options, *github.PullRequest, string) error
+	createPullRequest(ctx context.Context, ghrepo *github.Repository, featureBranch, branch string,
+		originalPR *github.PullRequest) (*github.PullRequest, error)
 }
 
 // Initialize checks the environment and populates the state
@@ -139,13 +141,13 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	}
 
 	// Fetch the pull request
-	pr, err := cp.state.ghrepo.GetPullRequest(ctx, prNumber)
+	pr, err := cp.impl.getPullRequest(ctx, prNumber, cp.state.ghrepo)
 	if err != nil {
 		return errors.Wrapf(err, "getting pull request %d", prNumber)
 	}
 
 	// Next step: Find out how the PR was merged
-	mergeMode, err := pr.GetMergeMode(ctx)
+	mergeMode, err := cp.impl.getMergeMode(ctx, pr)
 	if err != nil {
 		return errors.Wrapf(err, "getting merge mode for PR #%d", pr.Number)
 	}
@@ -156,49 +158,37 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 		return errors.Wrap(err, "creating the feature branch")
 	}
 
-	var cpError error
-
-	// The easiest case: PR was squashed. In this case we only need to CP
-	// the sha returned in merge_commit_sha
-	if mergeMode == SQUASH {
-		cpError = cp.impl.cherrypickCommits(
+	switch mergeMode {
+	case github.MMSQUASH:
+		// The easiest case: PR was squashed. In this case we only need to CP
+		// the sha returned in merge_commit_sha
+		if err := cp.impl.cherrypickCommits(
 			&cp.state, cp.options, []string{pr.MergeCommitSHA}, branch,
-		)
-	}
-
-	// Next, if the PR resulted in a merge commit, we only need to cherry-pick
-	// the `merge_commit_sha` but we have to find out which parent's tree we want
-	// to generate the diff from:
-	if mergeMode == MERGE {
-		parent, err2 := pr.PatchTreeID(ctx)
-		if err2 != nil {
-			return errors.Wrap(err2, "searching for parent patch tree")
+		); err != nil {
+			return errors.Wrap(err, "cherrypicking squashed commit")
 		}
-		cpError = cp.impl.cherrypickMergeCommit(
+	case github.MMMERGE:
+		// Next, if the PR resulted in a merge commit, we only need to cherry-pick
+		// the `merge_commit_sha` but we have to find out which parent's tree we want
+		// to generate the diff from:
+		parent, err := pr.PatchTreeID(ctx)
+		if err != nil {
+			return errors.Wrap(err, "searching for parent patch tree")
+		}
+		if err := cp.impl.cherrypickMergeCommit(
 			&cp.state, cp.options, branch, pr.MergeCommitSHA, parent,
-		)
-	}
-
-	// Last case. We are dealing with a rebase. In this case we have to take the
-	// merge commit and go back in the git log to find the previous trees and
-	// CP the commits where they merged
-	if mergeMode == REBASE {
-		rebaseCommits, err2 := pr.GetRebaseCommits(ctx)
-		if err2 != nil {
-			return errors.Wrapf(err2, "while getting commits in rebase from PR #%d", pr.Number)
+		); err != nil {
+			return errors.Wrap(err, "cherrypicking merge commit")
 		}
-
-		if len(rebaseCommits) == 0 {
-			return errors.Errorf("empty commit list while searching from commits from PR#%d", pr.Number)
+	case github.MMREBASE:
+		// Last case. We are dealing with a rebase. In this case we have to take the
+		// merge commit and go back in the git log to find the previous trees and
+		// CP the commits where they merged
+		if err := cp.impl.cherryPickRebasedPR(
+			ctx, &cp.state, cp.options, pr, branch,
+		); err != nil {
+			return errors.Wrap(err, "cherrypicking squashed commit")
 		}
-
-		cpError = cp.impl.cherrypickCommits(
-			&cp.state, cp.options, rebaseCommits, branch,
-		)
-	}
-
-	if cpError != nil {
-		return errors.Errorf("while cherrypicking pull request %d of type %s", pr.Number, mergeMode)
 	}
 
 	if err = cp.impl.pushFeatureBranch(&cp.state, cp.options, featureBranch); err != nil {
@@ -206,12 +196,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 	}
 
 	// Create the pull request
-	pullrequest, err := cp.state.ghrepo.CreatePullRequest(
-		ctx, featureBranch, branch,
-		fmt.Sprintf(prTitleTemplate, prNumber, branch),
-		fmt.Sprintf(prBodyTemplate, prNumber, branch, prNumber, branch, pr.Username),
-		&github.NewPullRequestOptions{MaintainerCanModify: true},
-	)
+	pullrequest, err := cp.impl.createPullRequest(ctx, cp.state.ghrepo, featureBranch, branch, pr)
 	if err != nil {
 		return errors.Wrap(err, "creating pull request in github")
 	}
@@ -289,4 +274,51 @@ func (impl *defaultCPImplementation) pushFeatureBranch(
 	}
 	logrus.Info(fmt.Sprintf("Successfully pushed %s to remote %s", featureBranch, opts.Remote))
 	return nil
+}
+
+// getPullRequest gets the pull request we are cherrypicking
+func (impl *defaultCPImplementation) getPullRequest(
+	ctx context.Context, prNumber int, ghrepo *github.Repository,
+) (*github.PullRequest, error) {
+	// Fetch the pull request from the repository
+	return ghrepo.GetPullRequest(ctx, prNumber)
+}
+
+func (impl *defaultCPImplementation) getMergeMode(ctx context.Context, pr *github.PullRequest) (string, error) {
+	return pr.GetMergeMode(ctx)
+}
+
+// cherryPickRebasedPR
+func (impl *defaultCPImplementation) cherryPickRebasedPR(
+	ctx context.Context, state *State, opts *Options, pr *github.PullRequest, branch string,
+) error {
+	// Get the lsit of commits rebased in the PR
+	rebaseCommits, err := pr.GetRebaseCommits(ctx)
+	if err != nil {
+		return errors.Wrapf(err, "while getting commits in rebase from PR #%d", pr.Number)
+	}
+	// To open a PR we need to make sure we have at least one commit
+	if len(rebaseCommits) == 0 {
+		return errors.Errorf("empty commit list while searching from commits from PR#%d", pr.Number)
+	}
+
+	if err := impl.cherrypickCommits(
+		state, opts, rebaseCommits, branch,
+	); err != nil {
+		return errors.Wrap(err, "cherrypicking squashed commit")
+	}
+	return nil
+}
+
+// createPullRequest opens
+func (impl *defaultCPImplementation) createPullRequest(
+	ctx context.Context, ghrepo *github.Repository, featureBranch, branch string,
+	originalPR *github.PullRequest) (*github.PullRequest, error) {
+	// Create the pull request in te repository
+	return ghrepo.CreatePullRequest(
+		ctx, featureBranch, branch,
+		fmt.Sprintf(prTitleTemplate, originalPR.Number, branch),
+		fmt.Sprintf(prBodyTemplate, originalPR.Number, branch, originalPR.Number, branch, originalPR.Username),
+		&github.NewPullRequestOptions{MaintainerCanModify: true},
+	)
 }
