@@ -46,7 +46,7 @@ func (di *defaultRepoImplementation) getIssue(ctx context.Context, owner, repo s
 }
 
 func (di *defaultRepoImplementation) createPullRequest(
-	ctx context.Context, owner, repo, head, base, title, body string, opts *NewPullRequestOptions,
+	ctx context.Context, owner, repo, base, head, title, body string, opts *NewPullRequestOptions,
 ) (*PullRequest, error) {
 	newPullRequest := &gogithub.NewPullRequest{
 		Head:                &head,
@@ -55,7 +55,9 @@ func (di *defaultRepoImplementation) createPullRequest(
 		Title:               &title,
 		MaintainerCanModify: &opts.MaintainerCanModify,
 	}
-	pullrequest, _, err := di.githubAPIUser.GitHubClient().PullRequests.Create(ctx, owner, repo, newPullRequest)
+	pullrequest, _, err := di.githubAPIUser.GitHubClient().PullRequests.Create(
+		ctx, owner, repo, newPullRequest,
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "creating pull request")
 	}
