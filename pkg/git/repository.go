@@ -20,6 +20,7 @@ type Repository struct {
 type RepoOptions struct {
 	Path          string
 	DefaultRemote string
+	MergeStrategy string // recursive-theirs
 }
 
 var defaultRepositoryOptions = &RepoOptions{
@@ -35,6 +36,10 @@ func NewRepositoryWithOptions(opts *RepoOptions) *Repository {
 		impl: &defaultRepositoryImpl{},
 		opts: opts,
 	}
+}
+
+func (repo *Repository) Options() *RepoOptions {
+	return repo.opts
 }
 
 func (repo *Repository) SetClient(c *gogit.Repository) {
@@ -73,6 +78,10 @@ func (repo *Repository) PushBranch(branch, remote string) error {
 	return repo.impl.pushBranch(repo.client, repo.opts, branch, remote)
 }
 
+func (repo *Repository) AddRemote(name, url string) error {
+	return repo.impl.addRemote(repo.client, repo.opts, name, url)
+}
+
 type repositoryImplementation interface {
 	statusRaw(*RepoOptions) (string, error)
 	createBranch(*gogit.Repository, *RepoOptions, string) error
@@ -81,6 +90,7 @@ type repositoryImplementation interface {
 	cherryPickCommits(client *gogit.Repository, opts *RepoOptions, commits []string, branch string) error
 	pushBranch(client *gogit.Repository, opts *RepoOptions, branch, remote string) error
 	cherryPickMergeCommit(client *gogit.Repository, opts *RepoOptions, branch, commitSHA string, parent int) error
+	addRemote(client *gogit.Repository, opts *RepoOptions, name, url string) error
 }
 
 type defaultRepositoryImpl struct{}
@@ -101,18 +111,6 @@ func (di *defaultRepositoryImpl) statusRaw(opts *RepoOptions) (string, error) {
 // createBranch creates a new Branch in the repo
 func (di *defaultRepositoryImpl) createBranch(client *gogit.Repository, opts *RepoOptions, branchName string) error {
 	logrus.Infof("Creating branch %s at %s", branchName, plumbing.NewBranchReferenceName(branchName))
-	// nolint: gocritic
-	/*
-		// PUre go implementation. Not working yet
-		if err := client.CreateBranch(&config.Branch{
-			Name:   branchName,
-			Merge:  plumbing.NewBranchReferenceName(branchName),
-			Remote: opts.DefaultRemote,
-		}); err != nil {
-			return errors.Wrapf(err, "creating new branch %s", branchName)
-		}
-		logrus.Infof("Created branch %s", branchName)
-	*/
 	return errors.Wrap(
 		command.NewWithWorkDir(opts.Path, gitCommand, "branch", branchName).RunSilentSuccess(),
 		"creating branch",
@@ -146,8 +144,20 @@ func (di *defaultRepositoryImpl) cherryPickCommits(
 		return errors.Wrapf(err, "checking out branch %s", branch)
 	}
 	logrus.Infof("Cherry picking %d commits to branch %s", len(commits), branch)
+
+	cmdLine := []string{"cherry-pick"}
+
+	// If we have a merge strategy, use it
+	switch opts.MergeStrategy {
+	case "recursive-theirs":
+		cmdLine = append(cmdLine, "--strategy=recursive", "-X", "theirs")
+	case "recursive-ours":
+		cmdLine = append(cmdLine, "--strategy=recursive", "-X", "ours")
+	}
+
 	// go-git does not yet support cherry picking, so we call the shell:
-	cmd := command.NewWithWorkDir(opts.Path, gitCommand, append([]string{"cherry-pick"}, commits...)...)
+	cmd := command.NewWithWorkDir(
+		opts.Path, gitCommand, append(cmdLine, commits...)...)
 	if err := cmd.RunSilentSuccess(); err != nil {
 		return errors.Wrap(err, "running git cherry-pick")
 	}
@@ -168,17 +178,12 @@ func (di *defaultRepositoryImpl) cherryPickMergeCommit(
 // function should work with commits, tags and other objects, but currently it only
 // works with
 func (di *defaultRepositoryImpl) checkout(client *gogit.Repository, opts *RepoOptions, refName string) error {
-	tree, err := client.Worktree()
-	if err != nil {
-		return errors.Wrap(err, "getting repository worktree")
-	}
-	// TODO: Check if reference is a hash and use that
-	if err := tree.Checkout(
-		&gogit.CheckoutOptions{
-			Branch: plumbing.NewBranchReferenceName(refName),
-		},
-	); err != nil {
-		return errors.Wrapf(err, "checking out %s", refName)
+	logrus.Infof("Checking out branch %s", refName)
+	// Switch to the sourceBranch, this ensures it exists and from there we branch
+	// TODO: Return to to go-git implementation
+	if err := command.NewWithWorkDir(
+		opts.Path, gitCommand, "checkout", refName).RunSilentSuccess(); err != nil {
+		return errors.Wrapf(err, "switching to source branch %s", refName)
 	}
 	return nil
 }
@@ -197,6 +202,20 @@ func (di *defaultRepositoryImpl) pushBranch(
 		opts.Path, gitCommand, "push", remote, branch,
 	).RunSilentSuccess(); err != nil {
 		return errors.Wrapf(err, "pushing branch %s to remote %s", branch, remote)
+	}
+	return nil
+}
+
+// func
+func (di *defaultRepositoryImpl) addRemote(
+	client *gogit.Repository, opts *RepoOptions, name, url string,
+) error {
+	logrus.Infof("Adding remote %s", name)
+	// Push the feature branch to the specified remote
+	if err := command.NewWithWorkDir(
+		opts.Path, gitCommand, "remote", "add", name, url,
+	).RunSilentSuccess(); err != nil {
+		return errors.Wrapf(err, "adding remote %s", name)
 	}
 	return nil
 }
