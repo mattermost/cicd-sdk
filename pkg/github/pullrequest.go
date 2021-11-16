@@ -47,13 +47,6 @@ func NewPullRequest() *PullRequest {
 	}
 }
 
-type PRImplementation interface {
-	loadRepository(context.Context, *PullRequest)
-	getMergeMode(ctx context.Context, pr *PullRequest, commits []*Commit) (mode string, err error)
-	getCommits(ctx context.Context, pr *PullRequest) ([]*Commit, error)
-	findPatchTree(ctx context.Context, pr *PullRequest) (parentNr int, err error)
-}
-
 // GetRepository returns the Repository object representing the
 // repo where the PR was filed
 func (pr *PullRequest) GetRepository(ctx context.Context) *Repository {
@@ -66,7 +59,7 @@ func (pr *PullRequest) GetRepository(ctx context.Context) *Repository {
 // GetMergeMode returns a string describing the way the pull request was merged
 func (pr *PullRequest) GetMergeMode(ctx context.Context) (mode string, err error) {
 	// Get the commits merged by the pull request
-	commits, err := pr.impl.getCommits(ctx, pr)
+	commits, err := pr.impl.getRebaseCommits(ctx, pr)
 	if err != nil {
 		return "", errors.Wrapf(err, "getting commits from pull request #%d", pr.Number)
 	}
@@ -122,10 +115,10 @@ func (pr *PullRequest) GetRebaseCommits(ctx context.Context) (commitSHAs []strin
 
 		// While we traverse the PR commits linearly, we follow
 		// the git graph to get the neext commit int th branch
-		branchCommit, err = pr.Repository.GetCommit(ctx, branchCommit.Parents[0].SHA)
+		branchCommit, err = pr.Repository.GetCommit(ctx, branchCommit.Parents[0])
 		if err != nil {
 			return nil, errors.Wrapf(
-				err, "while fetching branch commit #%d - %s", i, branchCommit.Parents[0].SHA,
+				err, "while fetching branch commit #%d - %s", i, branchCommit.Parents[0],
 			)
 		}
 	}

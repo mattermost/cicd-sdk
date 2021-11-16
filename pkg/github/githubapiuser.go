@@ -39,20 +39,22 @@ func (gau *githubAPIUser) GitHubClient() *gogithub.Client {
 	return gau.client
 }
 
-func (gau *githubAPIUser) NewCommitFromRepoCommit(rcommit *gogithub.RepositoryCommit) *Commit {
-	c := gau.NewCommit(rcommit.Commit)
-	for _, parent := range rcommit.Parents {
-		c.Parents = append(c.Parents, gau.NewCommit(parent))
-	}
+func (gau *githubAPIUser) NewCommit(rcommit *gogithub.RepositoryCommit) *Commit {
+	c := NewCommit()
 	c.SHA = rcommit.GetSHA()
-	return c
-}
+	c.TreeSHA = rcommit.Commit.GetTree().GetSHA()
 
-func (gau *githubAPIUser) NewCommit(ghcommit *gogithub.Commit) *Commit {
-	c := &Commit{
-		SHA:     ghcommit.GetSHA(),
-		Parents: []*Commit{},
-		TreeSHA: ghcommit.GetTree().GetSHA(),
+	// Circle the commit's parents and record the hashes
+	for _, parent := range rcommit.Parents {
+		c.Parents = append(c.Parents, parent.GetSHA())
+	}
+
+	// Add the changed files to the commit
+	for _, f := range rcommit.Files {
+		c.Files = append(c.Files, struct {
+			Filename string
+			SHA      string
+		}{*f.Filename, *f.SHA})
 	}
 	return c
 }

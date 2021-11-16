@@ -19,7 +19,7 @@ func (di *defaultRepoImplementation) getCommit(ctx context.Context, owner, repo,
 	if err != nil {
 		return nil, errors.Wrap(err, "fetching commit from github API")
 	}
-	return di.githubAPIUser.NewCommitFromRepoCommit(repoCommit), nil
+	return di.githubAPIUser.NewCommit(repoCommit), nil
 }
 
 // getPullRequest pulls a PR from the GitHub API and return a PullRequest object
