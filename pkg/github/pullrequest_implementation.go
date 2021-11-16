@@ -110,7 +110,6 @@ func (impl *defaultPRImplementation) getMergeMode(
 // is merged. THis means the SHAs change but the tree ids do not.
 func (impl *defaultPRImplementation) getCommits(ctx context.Context, pr *PullRequest) ([]*Commit, error) {
 	// Todo: Fixme read response and add retries
-	logrus.Infof("Getting commits for PR %d", pr.Number)
 	commitList, _, err := impl.githubAPIUser.GitHubClient().PullRequests.ListCommits(
 		ctx, pr.RepoOwner, pr.RepoName, pr.Number, &gogithub.ListOptions{},
 	)
@@ -120,7 +119,6 @@ func (impl *defaultPRImplementation) getCommits(ctx context.Context, pr *PullReq
 
 	list := []*Commit{}
 	for _, ghCommit := range commitList {
-		logrus.Infof("Got commit %s", ghCommit.GetSHA())
 		ghcommit2, _, err := impl.GitHubClient().Repositories.GetCommit(
 			ctx, pr.RepoOwner, pr.RepoName, ghCommit.GetSHA(), &gogithub.ListOptions{},
 		)
@@ -244,7 +242,7 @@ func (impl *defaultPRImplementation) getRebaseCommits(
 			)
 		}
 
-		logrus.Infof("Match #%d PR:%s vs Branch:%s", i, prTreeSHA, branchTreeSHA)
+		logrus.Debugf("Match #%d PR:%s vs Branch:%s", i, prTreeSHA, branchTreeSHA)
 
 		// Append the commit sha to the list (note not to use the *tree hash* here)
 		commits = append(commits, branchCommit)

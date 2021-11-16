@@ -3,8 +3,6 @@
 
 package github
 
-import "github.com/sirupsen/logrus"
-
 func NewCommit() *Commit {
 	return &Commit{
 		impl:    &defaultCommitImplementation{},
@@ -29,7 +27,6 @@ type CommitFile struct {
 
 // ChangeTree creates a sha1 sum of the changed files
 func (c *Commit) ChangeTree() string {
-	logrus.Infof("Checksumming %d files in commit %s", len(c.Files), c.SHA)
 	return c.impl.ChangeTree(c.Files)
 }
 
