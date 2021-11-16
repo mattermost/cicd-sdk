@@ -12,13 +12,12 @@ import (
 
 type defaultGithubImplementation struct {
 	githubAPIUser
-	client *gogithub.Client
 }
 
 func (di *defaultGithubImplementation) getPullRequestFromAPI(
 	ctx context.Context, owner, repo string, number int,
 ) (*PullRequest, error) {
-	ghpr, _, err := di.client.PullRequests.Get(ctx, owner, repo, number)
+	ghpr, _, err := di.GitHubClient().PullRequests.Get(ctx, owner, repo, number)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting PR from GitHub API")
 	}
