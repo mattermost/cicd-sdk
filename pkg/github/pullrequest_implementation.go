@@ -12,6 +12,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type PRImplementation interface {
+	loadRepository(context.Context, *PullRequest)
+	getMergeMode(ctx context.Context, pr *PullRequest, commits []*Commit) (mode string, err error)
+	getCommits(ctx context.Context, pr *PullRequest) ([]*Commit, error)
+	findPatchTree(ctx context.Context, pr *PullRequest) (parentNr int, err error)
+	getRebaseCommits(ctx context.Context, pr *PullRequest) (commits []*Commit, err error)
+}
+
 type defaultPRImplementation struct {
 	githubAPIUser
 }
@@ -40,6 +48,10 @@ func (impl *defaultPRImplementation) getMergeMode(
 		return "", errors.New("unable to get merge mode, pull request has no repo")
 	}
 
+	if pr.MergeCommitSHA == "" {
+		return "", errors.New("unable to get merge mode, pr does not have merge commit SHA")
+	}
+
 	// Fetch the PR data from the github API
 	mergeCommit, err := pr.GetRepository(ctx).GetCommit(ctx, pr.MergeCommitSHA)
 	if err != nil {
@@ -51,14 +63,14 @@ func (impl *defaultPRImplementation) getMergeMode(
 
 	// If the SHA commit has more than one parent, it is definitely a merge commit.
 	if len(mergeCommit.Parents) > 1 {
-		logrus.Info(fmt.Sprintf("PR #%d merged via a merge commit", pr.Number))
+		logrus.Infof("PR #%d merged via a merge commit", pr.Number)
 		return MERGE, nil
 	}
 
 	// A special case: if the PR only has one commit, we cannot tell if it was rebased or
 	// squashed. We return "squash" preemptibly to avoid recomputing trees unnecessarily.
 	if len(commits) == 1 {
-		logrus.Info(fmt.Sprintf("Considering PR #%d as squash as it only has one commit", pr.Number))
+		logrus.Infof("Considering PR #%d as squash as it only has one commit", pr.Number)
 		return SQUASH, nil
 	}
 
@@ -76,10 +88,10 @@ func (impl *defaultPRImplementation) getMergeMode(
 	// then the PR was squashed (thus generating a new tree of al commits combined).
 
 	// Fetch trees from both the merge commit and the last commit in the PR
-	mergeTree := mergeCommit.TreeSHA
-	prTree := commits[len(commits)-1].TreeSHA
+	mergeTree := mergeCommit.ChangeTree()
+	prTree := commits[len(commits)-1].ChangeTree()
 
-	logrus.Info(fmt.Sprintf("Merge tree: %s - PR tree: %s", mergeTree, prTree))
+	logrus.Infof("Merge tree: %s - PR tree: %s", mergeTree, prTree)
 
 	// Compare the tree shas...
 	if mergeTree == prTree {
@@ -93,7 +105,9 @@ func (impl *defaultPRImplementation) getMergeMode(
 	return SQUASH, nil
 }
 
-// getCommits returns the commits of the PR
+// getCommits returns the commits of the PR. These are not the merged
+// commits. The trees from these are copied to the branch when the PR
+// is merged. THis means the SHAs change but the tree ids do not.
 func (impl *defaultPRImplementation) getCommits(ctx context.Context, pr *PullRequest) ([]*Commit, error) {
 	// Todo: Fixme read response and add retries
 	commitList, _, err := impl.githubAPIUser.GitHubClient().PullRequests.ListCommits(
@@ -105,7 +119,16 @@ func (impl *defaultPRImplementation) getCommits(ctx context.Context, pr *PullReq
 
 	list := []*Commit{}
 	for _, ghCommit := range commitList {
-		list = append(list, impl.githubAPIUser.NewCommitFromRepoCommit(ghCommit))
+		ghcommit2, _, err := impl.GitHubClient().Repositories.GetCommit(
+			ctx, pr.RepoOwner, pr.RepoName, ghCommit.GetSHA(), &gogithub.ListOptions{},
+		)
+		if err != nil {
+			return nil, errors.Wrapf(err, "querying GitHub for commit %s", ghCommit.GetSHA())
+		}
+		if ghcommit2 == nil {
+			return nil, errors.Errorf("commit returned empty when querying sha %s", ghCommit.GetSHA())
+		}
+		list = append(list, impl.githubAPIUser.NewCommit(ghcommit2))
 	}
 
 	logrus.Info(fmt.Sprintf("Read %d commits from PR %d", len(commitList), pr.Number))
@@ -145,10 +168,7 @@ func (impl *defaultPRImplementation) findPatchTree(
 		return 0, errors.Errorf("commit returned empty when querying sha %s", pr.MergeCommitSHA)
 	}
 
-	logrus.Infof("%+v", repoCommit)
-	logrus.Infof("Hay %d parents", len(repoCommit.Parents))
-
-	mergeCommit := impl.githubAPIUser.NewCommitFromRepoCommit(repoCommit)
+	mergeCommit := impl.githubAPIUser.NewCommit(repoCommit)
 	if len(mergeCommit.Parents) == 0 {
 		return 0, errors.Errorf("commit %s has no parents defined", mergeCommit.SHA)
 	}
@@ -157,14 +177,15 @@ func (impl *defaultPRImplementation) findPatchTree(
 
 	// Now, cycle the parents, fetch their commits and see which one matches
 	// the tree hash extracted from the commit
+	// TODO: mergeCommit.GetParents()
 	for pn, parent := range mergeCommit.Parents {
 		parentCommit, _, err := impl.GitHubClient().Repositories.GetCommit(
-			ctx, pr.RepoOwner, pr.RepoName, parent.SHA, &gogithub.ListOptions{})
+			ctx, pr.RepoOwner, pr.RepoName, parent, &gogithub.ListOptions{})
 		if err != nil {
-			return 0, errors.Wrapf(err, "querying GitHub for parent commit %s", parent.SHA)
+			return 0, errors.Wrapf(err, "querying GitHub for parent commit %s", parent)
 		}
 		if parentCommit == nil {
-			return 0, errors.Errorf("commit returned empty when querying sha %s", parent.SHA)
+			return 0, errors.Errorf("commit returned empty when querying sha %s", parent)
 		}
 
 		parentTreeSHA := parentCommit.Commit.GetTree().GetSHA()
@@ -184,9 +205,9 @@ func (impl *defaultPRImplementation) findPatchTree(
 // GetRebaseCommits searches for the commits in the branch history
 // that match each modifications in the pull request's commit.
 // Remember: The commits in the PR are not the same commits in
-// the branch
+// the branch but their trees hashes must match
 func (impl *defaultPRImplementation) getRebaseCommits(
-	ctx context.Context, pr *PullRequest) (commitSHAs []string, err error) {
+	ctx context.Context, pr *PullRequest) (commits []*Commit, err error) {
 	// To find the commits, we take the last commit from the PR.
 	// The patch should match the commit int the pr `merge_commit_sha` field.
 	// From there we navigate backwards in the history ensuring all commits match
@@ -195,7 +216,7 @@ func (impl *defaultPRImplementation) getRebaseCommits(
 	repo := &defaultRepoImplementation{}
 	prCommits, err := impl.getCommits(ctx, pr)
 	if err != nil {
-		return commitSHAs, errors.Wrap(err, "fetching commits from pr")
+		return nil, errors.Wrap(err, "fetching commits from pr")
 	}
 
 	// First, the merge_commit_sha commit:
@@ -207,40 +228,41 @@ func (impl *defaultPRImplementation) getRebaseCommits(
 		return nil, errors.New("branch commit has no parents")
 	}
 
-	commitSHAs = []string{}
+	commits = []*Commit{}
 
 	// Now, lets cycle and make sure we have the right SHAs
 	for i := len(prCommits); i > 0; i-- {
-		// Get the shas from the trees. They should match
-		prTreeSHA := prCommits[i-1].TreeSHA
-		branchTreeSha := branchCommit.TreeSHA
-		if prTreeSHA != branchTreeSha {
+		// Get the SHAs from the change. They should match
+		prTreeSHA := prCommits[i-1].ChangeTree()
+		branchTreeSHA := branchCommit.ChangeTree()
+		if prTreeSHA != branchTreeSHA {
 			return nil, errors.Errorf(
-				"Mismatch in PR and branch hashed in commit #%d PR:%s vs Branch:%s",
-				i, prTreeSHA, branchTreeSha,
+				"Mismatch in checktrees on commit #%d PR:%s vs Branch:%s",
+				i, prTreeSHA, branchTreeSHA,
 			)
 		}
 
-		logrus.Infof("Match #%d PR:%s vs Branch:%s", i, prTreeSHA, branchTreeSha)
+		logrus.Debugf("Match #%d PR:%s vs Branch:%s", i, prTreeSHA, branchTreeSHA)
 
 		// Append the commit sha to the list (note not to use the *tree hash* here)
-		commitSHAs = append(commitSHAs, branchCommit.SHA)
+		commits = append(commits, branchCommit)
 		// While we traverse the PR commits linearly, we follow
-		// the git graph to get the next commit int th branch
+		// the git graph to get the next commit in the branch
+		parentSHA := branchCommit.Parents[0]
 		branchCommit, err = repo.getCommit(
-			ctx, pr.RepoOwner, pr.RepoName, branchCommit.Parents[0].SHA,
+			ctx, pr.RepoOwner, pr.RepoName, parentSHA,
 		)
 		if err != nil {
 			return nil, errors.Wrapf(
-				err, "while fetching branch commit #%d - %s", i, branchCommit.Parents[0].SHA,
+				err, "while fetching branch commit (prent #%d) %s", i, parentSHA,
 			)
 		}
 	}
 
 	// Reverse the list of shas to preserve the PR order
-	for i, j := 0, len(commitSHAs)-1; i < j; i, j = i+1, j-1 {
-		commitSHAs[i], commitSHAs[j] = commitSHAs[j], commitSHAs[i]
+	for i, j := 0, len(commits)-1; i < j; i, j = i+1, j-1 {
+		commits[i], commits[j] = commits[j], commits[i]
 	}
 
-	return commitSHAs, nil
+	return commits, nil
 }

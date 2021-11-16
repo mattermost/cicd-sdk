@@ -5,17 +5,13 @@ package github
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
-	gogithub "github.com/google/go-github/v39/github"
 	"github.com/stretchr/testify/require"
 )
 
 func getTestImplementation() *defaultGithubImplementation {
-	return &defaultGithubImplementation{
-		client: gogithub.NewClient(http.DefaultClient),
-	}
+	return &defaultGithubImplementation{}
 }
 
 func TestGetPullRequestFromAPI(t *testing.T) {
