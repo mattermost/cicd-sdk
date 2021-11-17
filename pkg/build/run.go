@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	intoto "github.com/in-toto/in-toto-golang/in_toto"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/release-utils/util"
@@ -85,6 +86,7 @@ func (r *Run) Execute() error {
 type runImplementation interface {
 	processReplacements(*RunnerOptions) error
 	checkExpectedArtifacts(opts *RunnerOptions) error
+	writeProvenance() error
 }
 
 type defaultRunImplementation struct{}
@@ -116,4 +118,31 @@ func (dri *defaultRunImplementation) checkExpectedArtifacts(opts *RunnerOptions)
 	}
 	logrus.Infof("Successfully confirmed %d expected artifacts", len(opts.ExpectedArtifacts))
 	return nil
+}
+
+func (dri *defaultRunImplementation) writeProvenance() error {
+	statement := intoto.ProvenanceStatement{
+		StatementHeader: intoto.StatementHeader{
+			Type:          "",
+			PredicateType: intoto.PredicateSLSAProvenanceV01,
+			Subject:       []intoto.Subject{},
+		},
+		Predicate: intoto.ProvenancePredicate{
+			Builder: intoto.ProvenanceBuilder{
+				ID: "",
+			},
+			Recipe: intoto.ProvenanceRecipe{},
+			Metadata: &intoto.ProvenanceMetadata{
+				BuildStartedOn:  &time.Time{},
+				BuildFinishedOn: &time.Time{},
+				Completeness: intoto.ProvenanceComplete{
+					Arguments:   false,
+					Environment: false,
+					Materials:   false,
+				},
+				Reproducible: false,
+			},
+			Materials: []intoto.ProvenanceMaterial{},
+		},
+	}
 }
