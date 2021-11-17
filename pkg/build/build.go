@@ -23,7 +23,8 @@ type Build struct {
 }
 
 type Options struct {
-	Workdir string
+	Workdir           string
+	ExpectedArtifacts []string
 }
 
 var DefaultOptions = &Options{
@@ -39,6 +40,7 @@ func (b *Build) Options() *Options {
 func (b *Build) Run() *Run {
 	// Set the runner options
 	b.runner.Options().Workdir = b.Options().Workdir
+	b.runner.Options().ExpectedArtifacts = b.opts.ExpectedArtifacts
 
 	// Create the new run
 	run := NewRun(b.runner)
