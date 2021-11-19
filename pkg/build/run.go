@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	intoto "github.com/in-toto/in-toto-golang/in_toto"
+	"github.com/mattermost/cicd-sdk/pkg/build/runners"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/release-utils/util"
@@ -25,13 +25,13 @@ type Run struct {
 	Created   time.Time
 	StartTime time.Time
 	EndTime   time.Time
-	runner    Runner
+	runner    runners.Runner
 	output    string
 	isSuccess *bool
 }
 
 // NewRun creates a new running specified an options set
-func NewRun(runner Runner) *Run {
+func NewRun(runner runners.Runner) *Run {
 	return &Run{
 		impl:    &defaultRunImplementation{},
 		runner:  runner,
@@ -84,15 +84,14 @@ func (r *Run) Execute() error {
 }
 
 type runImplementation interface {
-	processReplacements(*RunnerOptions) error
-	checkExpectedArtifacts(opts *RunnerOptions) error
-	writeProvenance() error
+	processReplacements(*runners.Options) error
+	checkExpectedArtifacts(opts *runners.Options) error
 }
 
 type defaultRunImplementation struct{}
 
 // processReplacements applies all replacements defined for the run
-func (dri *defaultRunImplementation) processReplacements(opts *RunnerOptions) error {
+func (dri *defaultRunImplementation) processReplacements(opts *runners.Options) error {
 	if opts.Replacements == nil || len(*opts.Replacements) == 0 {
 		logrus.Info("Run has no replacements defined")
 		return nil
@@ -106,7 +105,7 @@ func (dri *defaultRunImplementation) processReplacements(opts *RunnerOptions) er
 }
 
 // checkExpectedArtifacts verifies a list of expected artifacts
-func (dri *defaultRunImplementation) checkExpectedArtifacts(opts *RunnerOptions) error {
+func (dri *defaultRunImplementation) checkExpectedArtifacts(opts *runners.Options) error {
 	if opts.ExpectedArtifacts == nil {
 		logrus.Info("Run has no expected artifacts")
 		return nil
@@ -118,31 +117,4 @@ func (dri *defaultRunImplementation) checkExpectedArtifacts(opts *RunnerOptions)
 	}
 	logrus.Infof("Successfully confirmed %d expected artifacts", len(opts.ExpectedArtifacts))
 	return nil
-}
-
-func (dri *defaultRunImplementation) writeProvenance() error {
-	statement := intoto.ProvenanceStatement{
-		StatementHeader: intoto.StatementHeader{
-			Type:          "",
-			PredicateType: intoto.PredicateSLSAProvenanceV01,
-			Subject:       []intoto.Subject{},
-		},
-		Predicate: intoto.ProvenancePredicate{
-			Builder: intoto.ProvenanceBuilder{
-				ID: "",
-			},
-			Recipe: intoto.ProvenanceRecipe{},
-			Metadata: &intoto.ProvenanceMetadata{
-				BuildStartedOn:  &time.Time{},
-				BuildFinishedOn: &time.Time{},
-				Completeness: intoto.ProvenanceComplete{
-					Arguments:   false,
-					Environment: false,
-					Materials:   false,
-				},
-				Reproducible: false,
-			},
-			Materials: []intoto.ProvenanceMaterial{},
-		},
-	}
 }

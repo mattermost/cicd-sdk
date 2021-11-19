@@ -3,12 +3,22 @@
 
 package build
 
+import (
+	"github.com/mattermost/cicd-sdk/pkg/build/runners"
+	"github.com/mattermost/cicd-sdk/pkg/replacement"
+	"github.com/pkg/errors"
+)
+
+const (
+	BuilderID = "MatterBuild/v0.1"
+)
+
 // New returns a new build with the default options
-func New(runner Runner) *Build {
+func New(runner runners.Runner) *Build {
 	return NewWithOptions(runner, DefaultOptions)
 }
 
-func NewWithOptions(runner Runner, opts *Options) *Build {
+func NewWithOptions(runner runners.Runner, opts *Options) *Build {
 	return &Build{
 		runner: runner,
 		opts:   opts,
@@ -16,15 +26,16 @@ func NewWithOptions(runner Runner, opts *Options) *Build {
 }
 
 type Build struct {
-	runner       Runner
+	runner       runners.Runner
 	opts         *Options
 	Runs         []*Run
-	Replacements *[]Replacement
+	Replacements *[]replacement.Replacement
 }
 
 type Options struct {
 	Workdir           string
 	ExpectedArtifacts []string
+	EnvVars           map[string]string
 }
 
 var DefaultOptions = &Options{
@@ -40,7 +51,8 @@ func (b *Build) Options() *Options {
 func (b *Build) Run() *Run {
 	// Set the runner options
 	b.runner.Options().Workdir = b.Options().Workdir
-	b.runner.Options().ExpectedArtifacts = b.opts.ExpectedArtifacts
+	b.runner.Options().ExpectedArtifacts = b.Options().ExpectedArtifacts
+	b.runner.Options().EnvVars = b.Options().EnvVars
 
 	// Create the new run
 	run := NewRun(b.runner)
@@ -50,4 +62,47 @@ func (b *Build) Run() *Run {
 	b.Runs = append(b.Runs, run)
 
 	return run
+}
+
+// LoadConfig loads the build configuration from a file
+func (b *Build) Load(path string) error {
+	conf, err := LoadConfig(path)
+	if err != nil {
+		return errors.Wrap(err, "opening config")
+	}
+
+	// Initialize the runner from the configuration:
+	runner, err := runners.New(conf.Runner.ID, conf.Runner.Parameters...)
+	if err != nil {
+		return errors.Wrap(err, "initializing runner from config file")
+	}
+	b.runner = runner
+
+	// Load the secrets, we do this before replacements
+	// because we are going to need them
+
+	// TODO: Merge secrets from branch
+	// Secrets      []SecretConfig      `yaml:"secrets"`      // Secrets required by the build
+
+	// Build the replacement set:
+	if b.Replacements == nil {
+		b.Replacements = &[]replacement.Replacement{}
+	}
+	reps := []replacement.Replacement{}
+	for _, rdata := range conf.Replacements {
+		rep := replacement.Replacement{
+			Tag:           rdata.Tag,
+			Paths:         rdata.Paths,
+			PathsRequired: true,
+			// Required:      rdata.Required,
+		}
+		reps = append(reps, rep)
+	}
+	b.Replacements = &reps
+
+	for _, e := range conf.Env {
+		b.runner.Options().EnvVars[e.Var] = e.Value
+	}
+
+	return nil
 }
