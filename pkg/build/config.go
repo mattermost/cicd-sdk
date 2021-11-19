@@ -9,7 +9,7 @@ import (
 )
 
 // Load reads a config file and return a config object
-func Load(path string) (*Config, error) {
+func LoadConfig(path string) (*Config, error) {
 	yamlData, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "reading build configuration file")
@@ -57,7 +57,7 @@ func (conf *Config) Validate() error {
 	// Check replacement configuration
 	if conf.Replacements != nil {
 		for i, r := range conf.Replacements {
-			if r.Path == "" {
+			if r.Paths == nil {
 				return errors.Errorf("replacement #%d path is blank", i)
 			}
 			if r.Tag == "" {
@@ -118,8 +118,8 @@ type EnvConfig struct {
 }
 
 type ReplacementConfig struct {
-	Path      string `yaml:"path"`
-	Tag       string `yaml:"tag"`
+	Paths     []string `yaml:"paths"`
+	Tag       string   `yaml:"tag"`
 	ValueFrom struct {
 		Secret string `yaml:"secret"`
 		Env    string `yaml:"env"`
