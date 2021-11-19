@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 	"time"
 
+	intoto "github.com/in-toto/in-toto-golang/in_toto"
+	v02 "github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v0.2"
 	"github.com/mattermost/cicd-sdk/pkg/build/runners"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/release-utils/hash"
 	"sigs.k8s.io/release-utils/util"
 )
 
@@ -83,9 +86,14 @@ func (r *Run) Execute() error {
 	return nil
 }
 
+func (r *Run) Provenance() (*intoto.ProvenanceStatement, error) {
+	return r.impl.provenance(r)
+}
+
 type runImplementation interface {
 	processReplacements(*runners.Options) error
 	checkExpectedArtifacts(opts *runners.Options) error
+	provenance(*Run) (*intoto.ProvenanceStatement, error)
 }
 
 type defaultRunImplementation struct{}
@@ -117,4 +125,67 @@ func (dri *defaultRunImplementation) checkExpectedArtifacts(opts *runners.Option
 	}
 	logrus.Infof("Successfully confirmed %d expected artifacts", len(opts.ExpectedArtifacts))
 	return nil
+}
+
+func (dri *defaultRunImplementation) provenance(run *Run) (*intoto.ProvenanceStatement, error) {
+	// Generate the environment struct
+	var envData = map[string]string{}
+	for v, val := range run.runner.Options().EnvVars {
+		envData[v] = val
+	}
+
+	// Add the parameters
+	statement := intoto.ProvenanceStatement{
+		StatementHeader: intoto.StatementHeader{
+			Type:          intoto.StatementInTotoV01,
+			PredicateType: v02.PredicateSLSAProvenance,
+			Subject:       []intoto.Subject{},
+		},
+		Predicate: v02.ProvenancePredicate{
+			Builder: v02.ProvenanceBuilder{
+				ID: BuilderID,
+			},
+			BuildType: run.runner.ID(),
+			Invocation: v02.ProvenanceInvocation{
+				ConfigSource: v02.ConfigSource{},
+				Parameters:   run.runner.Arguments(),
+				Environment:  envData,
+			},
+			BuildConfig: nil,
+			Metadata: &v02.ProvenanceMetadata{
+				BuildInvocationID: "",
+				BuildStartedOn:    &run.StartTime,
+				BuildFinishedOn:   &run.EndTime,
+				Completeness:      v02.ProvenanceComplete{},
+				Reproducible:      false,
+			},
+			Materials: []v02.ProvenanceMaterial{},
+		},
+	}
+
+	for _, path := range run.runner.Options().ExpectedArtifacts {
+		ch256, err := hash.SHA256ForFile(filepath.Join(run.runner.Options().Workdir, path))
+		if err != nil {
+			return nil, errors.Wrap(err, "hashing expected artifacts to provenance subject")
+		}
+
+		ch512, err := hash.SHA512ForFile(filepath.Join(run.runner.Options().Workdir, path))
+		if err != nil {
+			return nil, errors.Wrap(err, "hashing expected artifacts to provenance subject")
+		}
+
+		sub := intoto.Subject{
+			Name: path,
+			Digest: map[string]string{
+				"sha256": ch256,
+				"sha512": ch512,
+			},
+		}
+
+		statement.StatementHeader.Subject = append(
+			statement.StatementHeader.Subject, sub,
+		)
+	}
+
+	return &statement, nil
 }
