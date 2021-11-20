@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"os"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -22,7 +23,10 @@ type Replacement struct {
 	Paths         []string
 	PathsRequired bool // If true, the replacement will fail if path is not found
 	Required      bool
+	Workdir       string
 }
+
+type ReplacementSet []Replacement
 
 func (r *Replacement) Apply() (err error) {
 	if r.Tag == "" {
@@ -30,6 +34,10 @@ func (r *Replacement) Apply() (err error) {
 	}
 
 	for _, path := range r.Paths {
+		logrus.Infof("Replacing tags in %s", path)
+		if r.Workdir != "" {
+			path = filepath.Join(r.Workdir, path)
+		}
 		fileData, err := os.Stat(path)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
