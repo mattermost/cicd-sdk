@@ -18,9 +18,10 @@ type Runner interface {
 
 type Options struct {
 	Workdir           string
+	ProvenanceDir     string
 	EnvVars           map[string]string
 	ExpectedArtifacts []string
-	Replacements      *[]replacement.Replacement
+	Replacements      []replacement.Replacement
 }
 
 var DefaultOptions = &Options{

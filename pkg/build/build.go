@@ -29,17 +29,20 @@ type Build struct {
 	runner       runners.Runner
 	opts         *Options
 	Runs         []*Run
-	Replacements *[]replacement.Replacement
+	Replacements []replacement.Replacement
 }
 
 type Options struct {
 	Workdir           string
 	ExpectedArtifacts []string
 	EnvVars           map[string]string
+	ProvenanceDir     string
 }
 
 var DefaultOptions = &Options{
-	Workdir: ".", // Working directory where the build runs
+	Workdir:           ".", // Working directory where the build runs
+	ExpectedArtifacts: []string{},
+	EnvVars:           map[string]string{},
 }
 
 // Options returns the build's option set
@@ -51,14 +54,19 @@ func (b *Build) Options() *Options {
 func (b *Build) Run() *Run {
 	// Set the runner options
 	b.runner.Options().Workdir = b.Options().Workdir
-	b.runner.Options().ExpectedArtifacts = b.Options().ExpectedArtifacts
 	b.runner.Options().EnvVars = b.Options().EnvVars
+	b.runner.Options().ProvenanceDir = b.Options().ProvenanceDir
+	b.runner.Options().ExpectedArtifacts = b.Options().ExpectedArtifacts
+	b.runner.Options().Replacements = b.Replacements
+	for i := range b.runner.Options().Replacements {
+		b.runner.Options().Replacements[i].Workdir = b.Options().Workdir
+	}
 
 	// Create the new run
 	run := NewRun(b.runner)
 
 	// The ID is the new run position in the run array:
-	run.ID = len(b.Runs)
+	run.id = len(b.Runs)
 	b.Runs = append(b.Runs, run)
 
 	return run
@@ -86,7 +94,7 @@ func (b *Build) Load(path string) error {
 
 	// Build the replacement set:
 	if b.Replacements == nil {
-		b.Replacements = &[]replacement.Replacement{}
+		b.Replacements = []replacement.Replacement{}
 	}
 	reps := []replacement.Replacement{}
 	for _, rdata := range conf.Replacements {
@@ -98,7 +106,7 @@ func (b *Build) Load(path string) error {
 		}
 		reps = append(reps, rep)
 	}
-	b.Replacements = &reps
+	b.Replacements = reps
 
 	for _, e := range conf.Env {
 		b.runner.Options().EnvVars[e.Var] = e.Value
