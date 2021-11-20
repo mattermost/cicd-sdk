@@ -30,6 +30,7 @@ require (
 	github.com/kevinburke/ssh_config v1.1.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/secure-systems-lab/go-securesystemslib v0.1.0 // indirect
 	github.com/sergi/go-diff v1.2.0 // indirect
 	github.com/shibumi/go-pathspec v1.2.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.0 // indirect
