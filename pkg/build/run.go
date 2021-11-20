@@ -4,6 +4,9 @@
 package build
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -24,7 +27,7 @@ var (
 // Run asbtracts a build run
 type Run struct {
 	impl      runImplementation
-	ID        int
+	id        int
 	Created   time.Time
 	StartTime time.Time
 	EndTime   time.Time
@@ -42,6 +45,10 @@ func NewRun(runner runners.Runner) *Run {
 	}
 }
 
+func (r *Run) ID() string {
+	return fmt.Sprintf("%s-%04d", r.runner.ID(), r.id)
+}
+
 func (r *Run) Output() string {
 	return r.output
 }
@@ -49,9 +56,10 @@ func (r *Run) Output() string {
 // Execute executes the run
 func (r *Run) Execute() error {
 	if r.isSuccess != nil {
-		logrus.Warnf("Run #%d already run", r.ID)
+		logrus.Warnf("Run #%d already ran", r.ID)
 		return nil
 	}
+
 	// Record the start time
 	r.StartTime = time.Now()
 
@@ -83,6 +91,11 @@ func (r *Run) Execute() error {
 	}
 
 	r.isSuccess = &RUNSUCCESS
+
+	if r.impl.writeProvenance(r) != nil {
+		return errors.Wrap(err, "writing provenance metadata")
+	}
+
 	return nil
 }
 
@@ -94,17 +107,18 @@ type runImplementation interface {
 	processReplacements(*runners.Options) error
 	checkExpectedArtifacts(opts *runners.Options) error
 	provenance(*Run) (*intoto.ProvenanceStatement, error)
+	writeProvenance(*Run) error
 }
 
 type defaultRunImplementation struct{}
 
 // processReplacements applies all replacements defined for the run
 func (dri *defaultRunImplementation) processReplacements(opts *runners.Options) error {
-	if opts.Replacements == nil || len(*opts.Replacements) == 0 {
+	if opts.Replacements == nil || len(opts.Replacements) == 0 {
 		logrus.Info("Run has no replacements defined")
 		return nil
 	}
-	for i, r := range *opts.Replacements {
+	for i, r := range opts.Replacements {
 		if err := r.Apply(); err != nil {
 			return errors.Wrapf(err, "applying replacement #%d", i)
 		}
@@ -188,4 +202,33 @@ func (dri *defaultRunImplementation) provenance(run *Run) (*intoto.ProvenanceSta
 	}
 
 	return &statement, nil
+}
+
+// writeProvenance outputs the provenance metadata to the
+// specified directory.
+func (dri *defaultRunImplementation) writeProvenance(r *Run) error {
+	if r.runner.Options().ProvenanceDir == "" {
+		logrus.Info("Not writing provenance metadata")
+		return nil
+	}
+
+	// Generate the attestation
+	statement, err := dri.provenance(r)
+	if err != nil {
+		return errors.Wrap(err, "generating provenance attestation")
+	}
+	data, err := json.MarshalIndent(statement, "", "  ")
+	if err != nil {
+		logrus.Fatal(errors.Wrap(err, "marshalling provenance attestation"))
+	}
+
+	filename := filepath.Join(
+		r.runner.Options().ProvenanceDir,
+		fmt.Sprintf("provenance-%d-%s.json", os.Getpid(), r.ID()),
+	)
+	if err := os.WriteFile(filename, data, os.FileMode(0o644)); err != nil {
+		return errors.Wrap(err, "writing provenance metadata to file")
+	}
+	logrus.Infof("Provenance metadata written to %s", filename)
+	return nil
 }
