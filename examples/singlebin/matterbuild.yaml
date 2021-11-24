@@ -1,0 +1,22 @@
+---
+runner:
+    id: make
+    params: ["compile"]
+provenance: /tmp/slsa/
+artifacts:
+  files: ["binary"]
+env:     
+  - var: SHA_COMMIT
+  - var: SHA_COMMIT_WITH_VAL
+    value: b739074e0260def700eb13b2aa6091cae9366327
+replacements:
+    - paths: [main.go]
+      tag: "%REPLACE_ME%"
+      value: ">> This text was successfully replaced <<"
+      required: true
+      requiredPaths: true
+
+#secrets:
+#    - name: SECRET1
+#    - name: SECRET2
+#    - name: RUDDER_DATAPLANE_URL
