@@ -26,7 +26,7 @@ type Replacement struct {
 	Workdir       string
 }
 
-type ReplacementSet []Replacement
+type Set []Replacement
 
 func (r *Replacement) Apply() (err error) {
 	if r.Tag == "" {
