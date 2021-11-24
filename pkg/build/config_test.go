@@ -19,7 +19,7 @@ env:
     value: b739074e0260def700eb13b2aa6091cae9366327
   - var: COMMIT_WITHOUT_SHA
 replacements:
-  - path: code.go
+  - paths: [code.go]
     tag: placeholder
     valueFrom:
       secret: TEST_SECRET
@@ -30,7 +30,7 @@ replacements:
 	require.NoError(t, os.WriteFile(f.Name(), []byte(testfile), os.FileMode(0o644)))
 
 	// Load the testfile
-	conf, err := Load(f.Name())
+	conf, err := LoadConfig(f.Name())
 	require.NoError(t, err)
 
 	// Test the expected values:
@@ -50,7 +50,7 @@ replacements:
 	require.Equal(t, conf.Env[1].Var, "COMMIT_WITHOUT_SHA")
 	require.Equal(t, conf.Env[1].Value, "")
 
-	require.Equal(t, conf.Replacements[0].Path, "code.go")
+	require.Equal(t, conf.Replacements[0].Paths[0], "code.go")
 	require.Equal(t, conf.Replacements[0].Tag, "placeholder")
 	require.Equal(t, conf.Replacements[0].ValueFrom.Secret, "TEST_SECRET")
 	require.Equal(t, conf.Replacements[0].ValueFrom.Env, "")
@@ -75,8 +75,8 @@ func TestConfigValidate(t *testing.T) {
 		},
 		Replacements: []ReplacementConfig{
 			{
-				Path: "test.go",
-				Tag:  "target",
+				Paths: []string{"test.go"},
+				Tag:   "target",
 				ValueFrom: struct {
 					Secret string "yaml:\"secret\""
 					Env    string "yaml:\"env\""
@@ -93,7 +93,7 @@ func TestConfigValidate(t *testing.T) {
 		{func(c *Config) { c.Runner.ID = "" }, true},                                                                // Lacks runner ID
 		{func(c *Config) { c.Secrets[0].Name = "" }, true},                                                          // Blank secret name
 		{func(c *Config) { c.Env[0].Var = "" }, true},                                                               // Blank Env name
-		{func(c *Config) { c.Replacements[0].Path = "" }, true},                                                     // Blank replacement path
+		{func(c *Config) { c.Replacements[0].Paths = nil }, true},                                                   // Blank replacement path
 		{func(c *Config) { c.Replacements[0].Tag = "" }, true},                                                      // Blank replacement Tag
 		{func(c *Config) { c.Replacements[0].ValueFrom.Secret = "" }, true},                                         // Both replacement sources blank
 		{func(c *Config) { c.Replacements[0].ValueFrom.Env = TEST }, true},                                          // Both replacement sources not-blank
