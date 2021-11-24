@@ -19,6 +19,10 @@ type Runner interface {
 type Options struct {
 	Workdir           string
 	ProvenanceDir     string
+	BuildPoint        string
+	Source            string
+	ConfigFile        string
+	ConfigPoint       string
 	EnvVars           map[string]string
 	ExpectedArtifacts []string
 	Replacements      []replacement.Replacement
@@ -26,6 +30,7 @@ type Options struct {
 
 var DefaultOptions = &Options{
 	Workdir: ".",
+	EnvVars: map[string]string{},
 }
 
 var Catalog = make(map[string]func(args ...string) Runner)
@@ -38,6 +43,9 @@ func New(builderID string, args ...string) (Runner, error) {
 	if runner == nil {
 		return nil, errors.Errorf("unable to initialize new runner")
 	}
+
+	runner.Options().Workdir = DefaultOptions.Workdir
+	runner.Options().EnvVars = DefaultOptions.EnvVars
 
 	return runner, nil
 }

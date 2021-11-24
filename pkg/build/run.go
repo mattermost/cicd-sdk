@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	intoto "github.com/in-toto/in-toto-golang/in_toto"
@@ -15,6 +16,7 @@ import (
 	"github.com/mattermost/cicd-sdk/pkg/build/runners"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/release-utils/command"
 	"sigs.k8s.io/release-utils/hash"
 	"sigs.k8s.io/release-utils/util"
 )
@@ -28,6 +30,7 @@ var (
 type Run struct {
 	impl      runImplementation
 	id        int
+	opts      *RunOptions
 	Created   time.Time
 	StartTime time.Time
 	EndTime   time.Time
@@ -36,11 +39,19 @@ type Run struct {
 	isSuccess *bool
 }
 
+// RunOptions control specific bits of a build run
+type RunOptions struct {
+	BuildPoint string
+}
+
+var DefaultRunOptions = &RunOptions{}
+
 // NewRun creates a new running specified an options set
 func NewRun(runner runners.Runner) *Run {
 	return &Run{
 		impl:    &defaultRunImplementation{},
 		runner:  runner,
+		opts:    DefaultRunOptions,
 		Created: time.Now(),
 	}
 }
@@ -53,10 +64,14 @@ func (r *Run) Output() string {
 	return r.output
 }
 
+func (r *Run) setRunnerOptions() {
+	r.runner.Options().BuildPoint = r.opts.BuildPoint
+}
+
 // Execute executes the run
 func (r *Run) Execute() error {
 	if r.isSuccess != nil {
-		logrus.Warnf("Run #%d already ran", r.ID)
+		logrus.Warnf("Run #%s already ran", r.ID())
 		return nil
 	}
 
@@ -71,6 +86,13 @@ func (r *Run) Execute() error {
 		}
 	}()
 
+	r.setRunnerOptions()
+
+	// Checkout the build point
+	if err := r.impl.checkoutBuildPoint(r); err != nil {
+		return errors.Wrapf(err, "checking out build point %s", r.runner.Options().BuildPoint)
+	}
+
 	// Process the run replacements
 	if err := r.impl.processReplacements(r.runner.Options()); err != nil {
 		logrus.Error("Error applying replacement data")
@@ -81,8 +103,8 @@ func (r *Run) Execute() error {
 	err := r.runner.Run()
 	r.output = r.runner.Output()
 	if err != nil {
-		logrus.Errorf("[exec error in run #%d] %s", r.ID, err)
-		return errors.Wrapf(err, "[exec error in run #%d]", r.ID)
+		logrus.Errorf("[exec error in run #%s] %s", r.ID(), err)
+		return errors.Wrapf(err, "[exec error in run #%s]", r.ID())
 	}
 
 	if err := r.impl.checkExpectedArtifacts(r.runner.Options()); err != nil {
@@ -108,6 +130,7 @@ type runImplementation interface {
 	checkExpectedArtifacts(opts *runners.Options) error
 	provenance(*Run) (*intoto.ProvenanceStatement, error)
 	writeProvenance(*Run) error
+	checkoutBuildPoint(*Run) error
 }
 
 type defaultRunImplementation struct{}
@@ -143,7 +166,7 @@ func (dri *defaultRunImplementation) checkExpectedArtifacts(opts *runners.Option
 
 func (dri *defaultRunImplementation) provenance(run *Run) (*intoto.ProvenanceStatement, error) {
 	// Generate the environment struct
-	var envData = map[string]string{}
+	envData := map[string]string{}
 	for v, val := range run.runner.Options().EnvVars {
 		envData[v] = val
 	}
@@ -173,8 +196,20 @@ func (dri *defaultRunImplementation) provenance(run *Run) (*intoto.ProvenanceSta
 				Completeness:      v02.ProvenanceComplete{},
 				Reproducible:      false,
 			},
+			// The first material is the source code
 			Materials: []v02.ProvenanceMaterial{},
 		},
+	}
+
+	if run.runner.Options().Source != "" && run.runner.Options().BuildPoint != "" {
+		statement.Predicate.Materials = append(statement.Predicate.Materials, v02.ProvenanceMaterial{
+			URI: "git+" + run.runner.Options().Source,
+			Digest: map[string]string{
+				"sha1": run.runner.Options().BuildPoint,
+			},
+		})
+	} else {
+		logrus.Warn("Source code and/or buildpint not set. Not adding to predicate materials")
 	}
 
 	for _, path := range run.runner.Options().ExpectedArtifacts {
@@ -199,6 +234,20 @@ func (dri *defaultRunImplementation) provenance(run *Run) (*intoto.ProvenanceSta
 		statement.StatementHeader.Subject = append(
 			statement.StatementHeader.Subject, sub,
 		)
+	}
+
+	// Add the configuration file if we have one
+	if run.runner.Options().ConfigFile != "" {
+		statement.Predicate.Invocation.ConfigSource = v02.ConfigSource{
+			URI: strings.TrimPrefix(run.runner.Options().ConfigFile, run.runner.Options().Workdir),
+		}
+
+		// If the rundata has the git config point, record it
+		if run.runner.Options().ConfigPoint != "" {
+			statement.Predicate.Invocation.ConfigSource.Digest = map[string]string{
+				"sha1": run.runner.Options().ConfigPoint,
+			}
+		}
 	}
 
 	return &statement, nil
@@ -230,5 +279,39 @@ func (dri *defaultRunImplementation) writeProvenance(r *Run) error {
 		return errors.Wrap(err, "writing provenance metadata to file")
 	}
 	logrus.Infof("Provenance metadata written to %s", filename)
+	return nil
+}
+
+func (dri *defaultRunImplementation) checkoutBuildPoint(r *Run) error {
+	// If buildpoint is blank, we assume we are about to run the
+	// build at HEAD. Here, we get the HEAD commit sha to record
+	// it in the provenance attestation.
+	if r.runner.Options().BuildPoint == "" {
+		logrus.Info("BuildPoint not set, building at HEAD")
+
+		// Get the current build point:
+		output, err := command.NewWithWorkDir(
+			r.runner.Options().Workdir,
+			"git", "log", "--pretty=format:%H", "-n1",
+		).RunSilentSuccessOutput()
+		if err != nil {
+			return errors.Wrap(err, "getting HEAD commit for build point")
+		}
+		commitSha := output.OutputTrimNL()
+		r.runner.Options().BuildPoint = commitSha
+		logrus.Infof("HEAD commit is %s", commitSha)
+		return nil
+	}
+
+	// Otherwise, we checkout the commit specified by BuildPoint
+	// to run the build at that point in the GIT history.
+	// Get the current build point:
+	if err := command.NewWithWorkDir(
+		r.runner.Options().Workdir,
+		"git", "checkout", r.runner.Options().BuildPoint,
+	).RunSilentSuccess(); err != nil {
+		return errors.Wrapf(err, "checking out build point (commit %s)", r.runner.Options().BuildPoint)
+	}
+
 	return nil
 }

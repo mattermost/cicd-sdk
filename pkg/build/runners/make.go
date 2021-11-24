@@ -22,7 +22,6 @@ func init() {
 
 type Make struct {
 	baseRunner
-	args []string
 }
 
 func NewMake(args ...string) Runner {

@@ -23,10 +23,12 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 type Config struct {
-	Runner       RunnerConfig        `yaml:"runner"`       // Tag determining the runner to use
-	Secrets      []SecretConfig      `yaml:"secrets"`      // Secrets required by the build
-	Env          []EnvConfig         `yaml:"env"`          // Environment vars to require/set
-	Replacements []ReplacementConfig `yaml:"replacements"` // Replacements to perform before the run
+	Runner        RunnerConfig        `yaml:"runner"`       // Tag determining the runner to use
+	Secrets       []SecretConfig      `yaml:"secrets"`      // Secrets required by the build
+	Env           []EnvConfig         `yaml:"env"`          // Environment vars to require/set
+	Replacements  []ReplacementConfig `yaml:"replacements"` // Replacements to perform before the run
+	Artifacts     ArtfactsConfig      `yaml:"artifacts"`    // Data about artifacts expected to be built
+	ProvenanceDir string              `yaml:"provenance"`   // Directory to write provenance data
 }
 
 // Validate checks the configuration values to make sure they are complete
@@ -118,10 +120,18 @@ type EnvConfig struct {
 }
 
 type ReplacementConfig struct {
-	Paths     []string `yaml:"paths"`
-	Tag       string   `yaml:"tag"`
-	ValueFrom struct {
+	Required      bool     `yaml:"required"`
+	RequiredPaths bool     `yaml:"requiredPaths"`
+	Tag           string   `yaml:"tag"`
+	Value         string   `yaml:"value"`
+	Paths         []string `yaml:"paths"`
+	ValueFrom     struct {
 		Secret string `yaml:"secret"`
 		Env    string `yaml:"env"`
 	} `yaml:"valueFrom"`
+}
+
+type ArtfactsConfig struct {
+	Files  []string `yaml:"files"` // List of files expected from the build
+	Images []string `yaml:"images"`
 }
