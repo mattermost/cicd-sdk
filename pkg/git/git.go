@@ -2,9 +2,11 @@ package git
 
 import (
 	"fmt"
+	"os"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/pkg/errors"
+	"sigs.k8s.io/release-utils/util"
 )
 
 const (
@@ -44,6 +46,23 @@ func (g *Git) OpenRepo(path string) (repo *Repository, err error) {
 }
 
 func (g *Git) CloneRepo(url, path string) (repo *Repository, err error) {
+	return g.impl.cloneRepo(url, path)
+}
+
+// OpenOrCloneRepo
+func (g *Git) OpenOrCloneRepo(url, path string) (repo *Repository, err error) {
+	// If we have no path, work in a temp directory
+	if path == "" {
+		path, err = os.MkdirTemp("", "repo-clone-")
+		if err != nil {
+			return nil, errors.Wrap(err, "creating temporary directory")
+		}
+	}
+
+	if util.Exists(path) {
+		// todo(@puerco): Check the directory actually is a fork of the repo
+		return g.impl.openRepo(path)
+	}
 	return g.impl.cloneRepo(url, path)
 }
 
