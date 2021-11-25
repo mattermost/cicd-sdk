@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	s3go "github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
@@ -24,8 +25,10 @@ type ObjectBackendS3 struct {
 }
 
 func NewS3WithOptions(opts *Options) *ObjectBackendS3 {
+	// TODO: pick up real credentials
 	sess := session.Must(session.NewSession(&aws.Config{
-		Region: aws.String(os.Getenv("AWS_DEFAULT_REGION")),
+		Region:      aws.String(os.Getenv("AWS_DEFAULT_REGION")),
+		Credentials: credentials.AnonymousCredentials,
 	},
 	))
 	return &ObjectBackendS3{
