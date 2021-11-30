@@ -106,7 +106,9 @@ func (impl *defaultCPImplementation) initialize(ctx context.Context, state *Stat
 		opts.RepoPath = tmpDir
 		logrus.Infof("cloning %s/%s to %s", opts.RepoOwner, opts.RepoName, opts.RepoPath)
 		repo, err = state.git.CloneRepo(git.GitHubURL(opts.RepoOwner, opts.RepoName), tmpDir)
-
+		if err != nil {
+			return errors.Wrap(err, "cloning repository")
+		}
 		if opts.Remote == "" {
 			opts.Remote = "user-fork"
 		}
