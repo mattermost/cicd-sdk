@@ -106,7 +106,9 @@ func (impl *defaultCPImplementation) initialize(ctx context.Context, state *Stat
 		opts.RepoPath = tmpDir
 		logrus.Infof("cloning %s/%s to %s", opts.RepoOwner, opts.RepoName, opts.RepoPath)
 		repo, err = state.git.CloneRepo(git.GitHubURL(opts.RepoOwner, opts.RepoName), tmpDir)
-
+		if err != nil {
+			return errors.Wrap(err, "cloning repository")
+		}
 		if opts.Remote == "" {
 			opts.Remote = "user-fork"
 		}
@@ -196,7 +198,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 		if err := cp.impl.cherryPickRebasedPR(
 			ctx, &cp.state, cp.options, pr, featureBranch,
 		); err != nil {
-			return errors.Wrap(err, "cherrypicking squashed commit")
+			return errors.Wrap(err, "cherrypicking rebased commit")
 		}
 	}
 

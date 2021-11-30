@@ -228,6 +228,11 @@ func (impl *defaultPRImplementation) getRebaseCommits(
 		return nil, errors.New("branch commit has no parents")
 	}
 
+	logrus.Debugf("Branch commit [%s]: %+v", branchCommit.ChangeTree(), branchCommit)
+	for i, c := range prCommits {
+		logrus.Debugf(" PR commit #%d [%s]: %+v", i, c.ChangeTree(), c)
+	}
+
 	commits = []*Commit{}
 
 	// Now, lets cycle and make sure we have the right SHAs
@@ -238,7 +243,7 @@ func (impl *defaultPRImplementation) getRebaseCommits(
 		if prTreeSHA != branchTreeSHA {
 			return nil, errors.Errorf(
 				"Mismatch in checktrees on commit #%d PR:%s vs Branch:%s",
-				i, prTreeSHA, branchTreeSHA,
+				i-1, prTreeSHA, branchTreeSHA,
 			)
 		}
 
