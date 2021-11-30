@@ -2,6 +2,7 @@ package build
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -110,4 +111,50 @@ func TestConfigValidate(t *testing.T) {
 			require.NoError(t, sut.Validate())
 		}
 	}
+}
+
+var sampleConfWithVars = `transfers:
+  - source: ["mattermost-webapp.tar.gz"]
+    destination: s3://${BUCKET}/gitlab/${PROJECT_NAME}/ee/test/${COMMIT_SHA}
+  - source: ["mattermost-webapp.tar.gz"]
+    destination: s3://${BUCKET}/gitlab/${PROJECT_NAME}/te/${COMMIT_SHA}
+`
+
+func TestExtractConfigVariables(t *testing.T) {
+	flags := extractConfigVariables([]byte(sampleConfWithVars))
+	require.Len(t, flags, 3)
+	require.ElementsMatch(t, flags, []string{"BUCKET", "PROJECT_NAME", "COMMIT_SHA"})
+}
+
+func TestReplaceVariables(t *testing.T) {
+	envReplacements := `env:
+  - var: BUCKET
+    value: mattermost-release
+  - var: PROJECT_NAME
+    value: project
+  - var: COMMIT_SHA
+    value: d642f2cd18bf96a3da793d6e594da3b7029c6ca2
+`
+
+	// Test replacing data from env variables defined in the yaml itself:
+	newYaml, err := replaceVariables([]byte(sampleConfWithVars + envReplacements))
+	require.NoError(t, err)
+	require.NotEqual(t, newYaml, []byte(sampleConfWithVars+envReplacements))
+	require.True(t, strings.Contains(string(newYaml), "destination: s3://mattermost-release/gitlab/project/te/d642f2cd18bf96a3da793d6e594da3b7029c6ca2"))
+	require.True(t, strings.Contains(string(newYaml), "destination: s3://mattermost-release/gitlab/project/ee/test/d642f2cd18bf96a3da793d6e594da3b7029c6ca2"))
+
+	// Test replacing data from the system environment variables:
+
+	// First. Without the defined values, this should throw an error
+	_, err = replaceVariables([]byte(sampleConfWithVars))
+	require.NoError(t, err)
+
+	// Now set the environment vars and retest
+	os.Setenv("BUCKET", "mattermost-release")
+	os.Setenv("PROJECT_NAME", "project")
+	os.Setenv("COMMIT_SHA", "d642f2cd18bf96a3da793d6e594da3b7029c6ca2")
+	newYaml, err = replaceVariables([]byte(sampleConfWithVars))
+	require.NoError(t, err)
+	require.True(t, strings.Contains(string(newYaml), "destination: s3://mattermost-release/gitlab/project/te/d642f2cd18bf96a3da793d6e594da3b7029c6ca2"))
+	require.True(t, strings.Contains(string(newYaml), "destination: s3://mattermost-release/gitlab/project/ee/test/d642f2cd18bf96a3da793d6e594da3b7029c6ca2"))
 }

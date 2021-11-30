@@ -1,12 +1,77 @@
 package build
 
 import (
+	"bytes"
+	"fmt"
 	"os"
+	"regexp"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
+
+var varRegexp = regexp.MustCompile(`\$\{([_A-Z0-9]+)\}`)
+
+// replaceVariables replaces the yaml configuration variables
+func replaceVariables(yamlData []byte) ([]byte, error) {
+	vars := extractConfigVariables(yamlData)
+	if len(vars) == 0 {
+		logrus.Info("No configuration variables found in YAML code")
+		return yamlData, nil
+	}
+
+	logrus.Infof("Replacing %d configuration variables in YAML code (%v)", len(vars), vars)
+	valueVals := map[string]string{}
+
+	// First, we do a first pass at parsing the config data to see if
+	// the replacements are defined inside of the conf itself (in env vars for example)
+	c, err := parseConf(yamlData)
+	if err != nil {
+		return nil, errors.Wrap(err, "parsing yaml configuration")
+	}
+
+	// Cycle all vars from the YAML conf and try to get a value for them
+	for _, yamlVariable := range vars {
+		valueVals[yamlVariable] = ""
+		for _, envConf := range c.Env {
+			// If there is a predefined environment var, use that value
+			if envConf.Var == yamlVariable {
+				valueVals[yamlVariable] = envConf.Value
+				logrus.Infof(
+					"YAML conf variable %s set to value '%s' from predefined environment",
+					yamlVariable, envConf.Value,
+				)
+				break
+			}
+		}
+
+		if valueVals[yamlVariable] != "" {
+			continue
+		}
+
+		// If not, check if the value is defined in the system env
+		if v := os.Getenv(yamlVariable); v != "" {
+			valueVals[yamlVariable] = v
+			logrus.Infof(
+				"YAML conf variable %s set to value '%s' from system environment",
+				yamlVariable, v,
+			)
+			continue
+		}
+
+		return nil, errors.Wrapf(
+			err, "unable to find a value for yaml config variable $%s", yamlVariable,
+		)
+	}
+
+	// Replace the values in the yaml data
+	for vr, vl := range valueVals {
+		yamlData = bytes.ReplaceAll(yamlData, []byte(fmt.Sprintf("${%s}", vr)), []byte(vl))
+	}
+
+	return yamlData, nil
+}
 
 // Load reads a config file and return a config object
 func LoadConfig(path string) (*Config, error) {
@@ -14,11 +79,43 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "reading build configuration file")
 	}
-	conf := &Config{}
-	if err := yaml.Unmarshal(yamlData, conf); err != nil {
+
+	yamlData, err = replaceVariables(yamlData)
+	if err != nil {
+		return nil, errors.Wrap(err, "replacing configuration variables")
+	}
+
+	conf, err := parseConf(yamlData)
+	if err != nil {
 		return nil, errors.Wrap(err, "parsing config yaml data")
 	}
 
+	return conf, nil
+}
+
+// extractConfigVariables scans configuration data to search for variables
+func extractConfigVariables(yamlData []byte) []string {
+	matches := varRegexp.FindAllSubmatch(yamlData, -1)
+	vars := []string{}
+	foundVars := map[string]struct{}{}
+	for _, match := range matches {
+		foundVars[string(match[1])] = struct{}{}
+	}
+	for v := range foundVars {
+		vars = append(vars, v)
+	}
+	return vars
+}
+
+func parseConf(yamlData []byte) (*Config, error) {
+	conf := &Config{
+		Secrets:      []SecretConfig{},
+		Env:          []EnvConfig{},
+		Replacements: []ReplacementConfig{},
+	}
+	if err := yaml.Unmarshal(yamlData, conf); err != nil {
+		return nil, errors.Wrap(err, "parsing config yaml data")
+	}
 	return conf, nil
 }
 
@@ -27,7 +124,7 @@ type Config struct {
 	Secrets       []SecretConfig      `yaml:"secrets"`      // Secrets required by the build
 	Env           []EnvConfig         `yaml:"env"`          // Environment vars to require/set
 	Replacements  []ReplacementConfig `yaml:"replacements"` // Replacements to perform before the run
-	Artifacts     ArtfactsConfig      `yaml:"artifacts"`    // Data about artifacts expected to be built
+	Artifacts     ArtifactsConfig     `yaml:"artifacts"`    // Data about artifacts expected to be built
 	ProvenanceDir string              `yaml:"provenance"`   // Directory to write provenance data
 }
 
@@ -131,7 +228,7 @@ type ReplacementConfig struct {
 	} `yaml:"valueFrom"`
 }
 
-type ArtfactsConfig struct {
+type ArtifactsConfig struct {
 	Files  []string `yaml:"files"` // List of files expected from the build
 	Images []string `yaml:"images"`
 }
