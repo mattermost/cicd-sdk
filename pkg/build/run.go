@@ -14,6 +14,7 @@ import (
 	intoto "github.com/in-toto/in-toto-golang/in_toto"
 	v02 "github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v0.2"
 	"github.com/mattermost/cicd-sdk/pkg/build/runners"
+	"github.com/mattermost/cicd-sdk/pkg/object"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/release-utils/command"
@@ -42,6 +43,7 @@ type Run struct {
 // RunOptions control specific bits of a build run
 type RunOptions struct {
 	BuildPoint string
+	Transfers  []TransferConfig // Artifacts to transfer out
 }
 
 var DefaultRunOptions = &RunOptions{}
@@ -114,6 +116,12 @@ func (r *Run) Execute() error {
 
 	r.isSuccess = &RUNSUCCESS
 
+	if r.impl.sendTransfers(r) != nil {
+		return errors.Wrap(err, "processing artifact transfers")
+	}
+
+	// TODO(@puerco): normalize provenance artifacts to their
+	// transferred locations
 	if r.impl.writeProvenance(r) != nil {
 		return errors.Wrap(err, "writing provenance metadata")
 	}
@@ -131,6 +139,7 @@ type runImplementation interface {
 	provenance(*Run) (*intoto.ProvenanceStatement, error)
 	writeProvenance(*Run) error
 	checkoutBuildPoint(*Run) error
+	sendTransfers(*Run) error
 }
 
 type defaultRunImplementation struct{}
@@ -313,5 +322,28 @@ func (dri *defaultRunImplementation) checkoutBuildPoint(r *Run) error {
 		return errors.Wrapf(err, "checking out build point (commit %s)", r.runner.Options().BuildPoint)
 	}
 
+	return nil
+}
+
+// sendTransfers copy the specified artifacts to their destinations
+func (dri *defaultRunImplementation) sendTransfers(r *Run) error {
+	if r.opts.Transfers == nil || len(r.opts.Transfers) == 0 {
+		logrus.Info("No artifact transfers defined in run")
+		return nil
+	}
+
+	// Create a new object manager to transfer the artifacts
+	manager := object.NewManager()
+
+	for _, td := range r.opts.Transfers {
+		for _, f := range td.Source {
+			if err := manager.Copy(
+				"file://"+filepath.Join(r.runner.Options().Workdir, f),
+				td.Destination,
+			); err != nil {
+				return errors.Wrap(err, "processing transfer")
+			}
+		}
+	}
 	return nil
 }

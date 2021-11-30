@@ -174,12 +174,13 @@ type Build struct {
 
 type Options struct {
 	Workdir           string
-	Source            string   // Source is the URL for the code repository
-	ExpectedArtifacts []string // A list of expected artifacts to be produced by the build
-	EnvVars           map[string]string
-	ProvenanceDir     string
-	ConfigFile        string // If the build was bootstarpped from a build, this is it
-	ConfigPoint       string // git ref of the config file
+	Source            string            // Source is the URL for the code repository
+	ExpectedArtifacts []string          // A list of expected artifacts to be produced by the build
+	EnvVars           map[string]string // Variables to set when running
+	ProvenanceDir     string            // FIrectory to save the provenance attestations
+	ConfigFile        string            // If the build was bootstarpped from a build, this is it
+	ConfigPoint       string            // git ref of the config file
+	Transfers         []TransferConfig  // List of artifacts to transfer
 }
 
 var DefaultOptions = &Options{
@@ -210,7 +211,9 @@ func (b *Build) setRunnerOptions() {
 
 // Run creates a new run
 func (b *Build) Run() *Run {
-	return b.RunWithOptions(DefaultRunOptions)
+	opts := DefaultRunOptions
+	opts.Transfers = b.Options().Transfers
+	return b.RunWithOptions(opts)
 }
 
 func (b *Build) RunWithOptions(opts *RunOptions) *Run {
@@ -270,7 +273,8 @@ func (b *Build) Load(path string) error {
 	}
 
 	b.Options().ProvenanceDir = conf.ProvenanceDir
-	b.Options().ConfigFile = path // Check if its normalized to the repo dir
+	b.Options().ConfigFile = path          // Check if its normalized to the repo dir
+	b.Options().Transfers = conf.Transfers // Artifacts to transfer out
 
 	if conf.Artifacts.Files != nil {
 		if conf.Artifacts.Files != nil {
