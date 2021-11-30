@@ -99,8 +99,8 @@ func (pr *PullRequest) GetRebaseCommits(ctx context.Context) (commitSHAs []strin
 	// Now, lets cycle and make sure we have the right SHAs
 	for i := len(prCommits); i > 0; i-- {
 		// Get the shas from the trees. They should match
-		prTreeSHA := prCommits[i-1].TreeSHA
-		branchTreeSha := branchCommit.TreeSHA
+		prTreeSHA := prCommits[i-1].ChangeTree()
+		branchTreeSha := branchCommit.ChangeTree()
 		if prTreeSHA != branchTreeSha {
 			return nil, errors.Errorf(
 				"Mismatch in PR and branch hashes in commit #%d PR:%s vs Branch:%s",

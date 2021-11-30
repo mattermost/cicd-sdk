@@ -198,7 +198,7 @@ func (cp *CherryPicker) CreateCherryPickPRWithContext(ctx context.Context, prNum
 		if err := cp.impl.cherryPickRebasedPR(
 			ctx, &cp.state, cp.options, pr, featureBranch,
 		); err != nil {
-			return errors.Wrap(err, "cherrypicking squashed commit")
+			return errors.Wrap(err, "cherrypicking rebased commit")
 		}
 	}
 
