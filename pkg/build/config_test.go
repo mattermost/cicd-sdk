@@ -24,6 +24,11 @@ replacements:
     tag: placeholder
     valueFrom:
       secret: TEST_SECRET
+transfers:
+  - source: ["mattermost-webapp.tar.gz"]
+    destination: s3://bucket1/dir/subdir/
+  - source: ["mmctl", "mmctl.sha512"]
+    destination: s3://bucket2/projectname/dir/
 `
 	f, err := os.CreateTemp("", "yaml-test-")
 	require.NoError(t, err)
@@ -55,6 +60,12 @@ replacements:
 	require.Equal(t, conf.Replacements[0].Tag, "placeholder")
 	require.Equal(t, conf.Replacements[0].ValueFrom.Secret, "TEST_SECRET")
 	require.Equal(t, conf.Replacements[0].ValueFrom.Env, "")
+
+	require.Len(t, conf.Transfers, 2)
+	require.Equal(t, conf.Transfers[0].Destination, "s3://bucket1/dir/subdir/")
+	require.Equal(t, conf.Transfers[0].Source, []string{"mattermost-webapp.tar.gz"})
+	require.Equal(t, conf.Transfers[1].Destination, "s3://bucket2/projectname/dir/")
+	require.Equal(t, conf.Transfers[1].Source, []string{"mmctl", "mmctl.sha512"})
 }
 
 func TestConfigValidate(t *testing.T) {

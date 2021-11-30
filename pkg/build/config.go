@@ -112,6 +112,7 @@ func parseConf(yamlData []byte) (*Config, error) {
 		Secrets:      []SecretConfig{},
 		Env:          []EnvConfig{},
 		Replacements: []ReplacementConfig{},
+		Transfers:    []TransferConfig{},
 	}
 	if err := yaml.Unmarshal(yamlData, conf); err != nil {
 		return nil, errors.Wrap(err, "parsing config yaml data")
@@ -126,6 +127,7 @@ type Config struct {
 	Replacements  []ReplacementConfig `yaml:"replacements"` // Replacements to perform before the run
 	Artifacts     ArtifactsConfig     `yaml:"artifacts"`    // Data about artifacts expected to be built
 	ProvenanceDir string              `yaml:"provenance"`   // Directory to write provenance data
+	Transfers     []TransferConfig    `yaml:"transfers"`    // List of artifacts to be transferred out after the build is done
 }
 
 // Validate checks the configuration values to make sure they are complete
@@ -198,6 +200,17 @@ func (conf *Config) Validate() error {
 			}
 		}
 	}
+
+	if conf.Transfers != nil {
+		for i, t := range conf.Transfers {
+			if t.Destination == "" {
+				return errors.Errorf("transfer #%d config has no destination URL", i)
+			}
+			if len(t.Source) == 0 {
+				return errors.Errorf("transfer #%d config has empty list of artifacts", i)
+			}
+		}
+	}
 	logrus.Info("Build configuration is valid")
 	return nil
 }
@@ -231,4 +244,9 @@ type ReplacementConfig struct {
 type ArtifactsConfig struct {
 	Files  []string `yaml:"files"` // List of files expected from the build
 	Images []string `yaml:"images"`
+}
+
+type TransferConfig struct {
+	Source      []string `yaml:"source"`      // List if files to transfer out
+	Destination string   `yaml:"destination"` // An object URL where files will be copied to
 }
