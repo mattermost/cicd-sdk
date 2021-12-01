@@ -117,7 +117,7 @@ func (r *Run) Execute() error {
 
 	r.isSuccess = &RUNSUCCESS
 
-	if r.impl.sendTransfers(r) != nil {
+	if err := r.impl.sendTransfers(r); err != nil {
 		return errors.Wrap(err, "processing artifact transfers")
 	}
 

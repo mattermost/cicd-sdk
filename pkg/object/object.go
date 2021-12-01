@@ -54,7 +54,7 @@ func (om *Manager) Copy(srcURL, destURL string) (err error) {
 		return errors.New("cloud to cloud operations are not yet supported")
 	}
 
-	return (srcBackend).CopyObject(srcURL, destURL)
+	return (dstBackend).CopyObject(srcURL, destURL)
 }
 
 type ManagerImplementation interface {
