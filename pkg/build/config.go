@@ -39,7 +39,7 @@ func replaceVariables(yamlData []byte) ([]byte, error) {
 			if envConf.Var == yamlVariable {
 				valueVals[yamlVariable] = envConf.Value
 				logrus.Infof(
-					"YAML conf variable %s set to value '%s' from predefined environment",
+					"> YAML conf variable %s set to value '%s' from predefined environment",
 					yamlVariable, envConf.Value,
 				)
 				break
@@ -60,8 +60,12 @@ func replaceVariables(yamlData []byte) ([]byte, error) {
 			continue
 		}
 
-		return nil, errors.Wrapf(
-			err, "unable to find a value for yaml config variable $%s", yamlVariable,
+		if _, ok := valueVals[yamlVariable]; ok {
+			continue
+		}
+
+		return nil, errors.Errorf(
+			"unable to find a value for yaml config variable $%s", yamlVariable,
 		)
 	}
 
@@ -75,6 +79,7 @@ func replaceVariables(yamlData []byte) ([]byte, error) {
 
 // Load reads a config file and return a config object
 func LoadConfig(path string) (*Config, error) {
+	logrus.Infof("Loading build configuration from %s", path)
 	yamlData, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "reading build configuration file")
@@ -84,7 +89,7 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "replacing configuration variables")
 	}
-
+	logrus.Infof("Build conf:\n%s", string(yamlData))
 	conf, err := parseConf(yamlData)
 	if err != nil {
 		return nil, errors.Wrap(err, "parsing config yaml data")
