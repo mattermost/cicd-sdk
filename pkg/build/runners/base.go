@@ -23,7 +23,9 @@ type Options struct {
 	Source            string
 	ConfigFile        string
 	ConfigPoint       string
-	EnvVars           map[string]string
+	Log               string            // Path to file where the log will be stored
+	ErrorLog          string            // Path to file where errors will be logged to
+	EnvVars           map[string]string // String map of environment variables in var=value form
 	ExpectedArtifacts []string
 	Replacements      []replacement.Replacement
 }

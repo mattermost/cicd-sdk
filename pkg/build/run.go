@@ -36,7 +36,6 @@ type Run struct {
 	StartTime time.Time
 	EndTime   time.Time
 	runner    runners.Runner
-	output    string
 	isSuccess *bool
 }
 
@@ -60,10 +59,6 @@ func NewRun(runner runners.Runner) *Run {
 
 func (r *Run) ID() string {
 	return fmt.Sprintf("%s-%04d", r.runner.ID(), r.id)
-}
-
-func (r *Run) Output() string {
-	return r.output
 }
 
 func (r *Run) setRunnerOptions() {
@@ -101,10 +96,16 @@ func (r *Run) Execute() error {
 		return errors.Wrap(err, "applying run replacement data")
 	}
 
-	// Call the runner Run method to execute the build
-	err := r.runner.Run()
-	r.output = r.runner.Output()
+	// Add a logfile. FOr now just a tmporary file
+	outputFile, err := os.CreateTemp("", "builder-run-*.log")
 	if err != nil {
+		return errors.Wrap(err, "creating temporary file for log")
+	}
+	logrus.Infof("Build run output will be logged to %s", outputFile.Name())
+	r.runner.Options().Log = outputFile.Name()
+
+	// Call the runner Run method to execute the build
+	if err := r.runner.Run(); err != nil {
 		logrus.Errorf("[exec error in run #%s] %s", r.ID(), err)
 		return errors.Wrapf(err, "[exec error in run #%s]", r.ID())
 	}
