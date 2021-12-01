@@ -35,7 +35,7 @@ func (fsb *Filesystem) CopyObject(srcURL, destURL string) error {
 	srcPath := filepath.Join(string(filepath.Separator), strings.TrimPrefix(srcURL, URLPrefixFilesystem))
 	destPath := filepath.Join(string(filepath.Separator), strings.TrimPrefix(destURL, URLPrefixFilesystem))
 
-	logrus.Infof("Copying %s to %s", srcPath, destPath)
+	logrus.Infof("Copying %s to %s in local filesystem", srcPath, destPath)
 
 	sourceFileStat, err := os.Stat(srcPath)
 	if err != nil {

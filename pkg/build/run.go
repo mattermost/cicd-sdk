@@ -335,12 +335,14 @@ func (dri *defaultRunImplementation) sendTransfers(r *Run) error {
 
 	// Create a new object manager to transfer the artifacts
 	manager := object.NewManager()
-
 	for _, td := range r.opts.Transfers {
 		for _, f := range td.Source {
+			rpath, err := filepath.Abs(filepath.Join(r.runner.Options().Workdir, f))
+			if err != nil {
+				return errors.Wrap(err, "resolving absolute path to artifact")
+			}
 			if err := manager.Copy(
-				"file://"+filepath.Join(r.runner.Options().Workdir, f),
-				td.Destination,
+				"file:/"+rpath, td.Destination,
 			); err != nil {
 				return errors.Wrap(err, "processing transfer")
 			}

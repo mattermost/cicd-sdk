@@ -7,6 +7,7 @@ import (
 
 	"github.com/mattermost/cicd-sdk/pkg/object/backends"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // Manager
@@ -32,6 +33,7 @@ func NewManager() *Manager {
 
 // Copy copies an object from a srcURL to a destination URL
 func (om *Manager) Copy(srcURL, destURL string) (err error) {
+	logrus.Infof("Transferring data from %s to %s", srcURL, destURL)
 	srcBackend, err := om.impl.GetURLBackend(om.Backends, srcURL)
 	if err != nil {
 		return errors.Wrap(err, "getting backend for destination URL")
