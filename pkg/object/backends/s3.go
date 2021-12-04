@@ -25,12 +25,16 @@ type ObjectBackendS3 struct {
 }
 
 func NewS3WithOptions(opts *Options) *ObjectBackendS3 {
-	// TODO: pick up real credentials
-	sess := session.Must(session.NewSession(&aws.Config{
-		Region:      aws.String(os.Getenv("AWS_DEFAULT_REGION")),
-		Credentials: credentials.AnonymousCredentials,
-	},
-	))
+	// Create the new configuration for the client
+	conf := &aws.Config{
+		Region: aws.String(os.Getenv("AWS_DEFAULT_REGION")),
+	}
+
+	if os.Getenv("AWS_ACCESS_KEY_ID") == "" {
+		logrus.Infof("No AWS credentials found in the environment, using anonnymous client")
+		conf.Credentials = credentials.AnonymousCredentials
+	}
+	sess := session.Must(session.NewSession(conf))
 	return &ObjectBackendS3{
 		session: *sess,
 	}
