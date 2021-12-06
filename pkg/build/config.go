@@ -133,6 +133,7 @@ type Config struct {
 	Artifacts     ArtifactsConfig     `yaml:"artifacts"`    // Data about artifacts expected to be built
 	ProvenanceDir string              `yaml:"provenance"`   // Directory to write provenance data
 	Transfers     []TransferConfig    `yaml:"transfers"`    // List of artifacts to be transferred out after the build is done
+	Materials     MaterialsConfig     `yaml:"materials"`
 }
 
 // Validate checks the configuration values to make sure they are complete
@@ -254,4 +255,9 @@ type ArtifactsConfig struct {
 type TransferConfig struct {
 	Source      []string `yaml:"source"`      // List if files to transfer out
 	Destination string   `yaml:"destination"` // An object URL where files will be copied to
+}
+
+type MaterialsConfig []struct {
+	URI    string            `yaml:"uri"`    // URI to locate the source material
+	Digest map[string]string `yaml:"digest"` // String to validate the material
 }

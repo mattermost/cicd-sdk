@@ -29,6 +29,10 @@ transfers:
     destination: s3://bucket1/dir/subdir/
   - source: ["mmctl", "mmctl.sha512"]
     destination: s3://bucket2/projectname/dir/
+materials:
+  - source: "git+https://github.com/foo/bar.git"
+    digest:
+      sha1: e97447134cd650ee9f9da5d705a06d3c548d3d6c
 `
 	f, err := os.CreateTemp("", "yaml-test-")
 	require.NoError(t, err)
@@ -66,6 +70,11 @@ transfers:
 	require.Equal(t, conf.Transfers[0].Source, []string{"mattermost-webapp.tar.gz"})
 	require.Equal(t, conf.Transfers[1].Destination, "s3://bucket2/projectname/dir/")
 	require.Equal(t, conf.Transfers[1].Source, []string{"mmctl", "mmctl.sha512"})
+
+	require.Equal(t, conf.Materials[0].URI, "")
+	require.Len(t, conf.Materials, 1)
+	require.Len(t, conf.Materials[0].Digest, 1)
+	require.Equal(t, conf.Materials[0].Digest["sha1"], "e97447134cd650ee9f9da5d705a06d3c548d3d6c")
 }
 
 func TestConfigValidate(t *testing.T) {
