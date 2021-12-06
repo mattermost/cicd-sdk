@@ -42,6 +42,7 @@ type Run struct {
 // RunOptions control specific bits of a build run
 type RunOptions struct {
 	BuildPoint string
+	Materials  MaterialsConfig  // List of materials for the build
 	Transfers  []TransferConfig // Artifacts to transfer out
 }
 
@@ -82,6 +83,11 @@ func (r *Run) Execute() error {
 			r.isSuccess = &RUNFAIL
 		}
 	}()
+
+	// Download the materials to run the build
+	if err := r.impl.downloadMaterials(r); err != nil {
+		return errors.Wrap(err, "downloading materials")
+	}
 
 	r.setRunnerOptions()
 
@@ -141,6 +147,7 @@ type runImplementation interface {
 	writeProvenance(*Run) error
 	checkoutBuildPoint(*Run) error
 	sendTransfers(*Run) error
+	downloadMaterials(*Run) error
 }
 
 type defaultRunImplementation struct{}
@@ -348,5 +355,30 @@ func (dri *defaultRunImplementation) sendTransfers(r *Run) error {
 			}
 		}
 	}
+	return nil
+}
+
+// downloadMaterials downloads the build materials
+func (dri *defaultRunImplementation) downloadMaterials(r *Run) error {
+	if r.opts.Materials == nil {
+		logrus.Info("no materials defined in the run")
+		return nil
+	}
+
+	materialsDir, err := os.MkdirTemp("", "materials-download-")
+	if err != nil {
+		return errors.Wrap(err, "creating materials directory")
+	}
+
+	manager := object.NewManager()
+
+	// TODO: Parallelize downloads
+	for _, m := range r.opts.Materials {
+		logrus.Infof("Downloading from %s", m.URI)
+		if err := manager.Copy(m.URI, "file:/"+materialsDir); err != nil {
+			return errors.Wrap(err, "copying artifact")
+		}
+	}
+
 	return nil
 }

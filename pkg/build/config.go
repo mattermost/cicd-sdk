@@ -133,7 +133,7 @@ type Config struct {
 	Artifacts     ArtifactsConfig     `yaml:"artifacts"`    // Data about artifacts expected to be built
 	ProvenanceDir string              `yaml:"provenance"`   // Directory to write provenance data
 	Transfers     []TransferConfig    `yaml:"transfers"`    // List of artifacts to be transferred out after the build is done
-	Materials     MaterialsConfig     `yaml:"materials"`
+	Materials     MaterialsConfig     `yaml:"materials"`    // List of materials defined
 }
 
 // Validate checks the configuration values to make sure they are complete

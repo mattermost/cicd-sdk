@@ -181,6 +181,7 @@ type Options struct {
 	ConfigFile        string            // If the build was bootstarpped from a build, this is it
 	ConfigPoint       string            // git ref of the config file
 	Transfers         []TransferConfig  // List of artifacts to transfer
+	Materials         MaterialsConfig   // List of materials to use for the build
 }
 
 var DefaultOptions = &Options{
@@ -213,6 +214,7 @@ func (b *Build) setRunnerOptions() {
 func (b *Build) Run() *Run {
 	opts := DefaultRunOptions
 	opts.Transfers = b.Options().Transfers
+	opts.Materials = b.Options().Materials
 	return b.RunWithOptions(opts)
 }
 
@@ -275,6 +277,7 @@ func (b *Build) Load(path string) error {
 	b.Options().ProvenanceDir = conf.ProvenanceDir
 	b.Options().ConfigFile = path          // Check if its normalized to the repo dir
 	b.Options().Transfers = conf.Transfers // Artifacts to transfer out
+	b.Options().Materials = conf.Materials //
 
 	if conf.Artifacts.Files != nil {
 		if conf.Artifacts.Files != nil {
