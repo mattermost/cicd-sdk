@@ -418,8 +418,13 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 	manager := object.NewManager()
 	// TODO(@puerco): This should be parallelized in the object manager
 	for _, fname := range r.opts.Artifacts.Files {
+		rpath, err := filepath.Abs(filepath.Join(r.runner.Options().Workdir, fname))
+		if err != nil {
+			return errors.Wrap(err, "resolving artifact path")
+		}
+		// Copy the file to the artifact destination
 		if err := manager.Copy(
-			"file:/"+filepath.Join(r.runner.Options().Workdir, fname),
+			"file:/"+rpath,
 			r.opts.Artifacts.Destination+string(filepath.Separator)+fname,
 		); err != nil {
 			return errors.Wrapf(
