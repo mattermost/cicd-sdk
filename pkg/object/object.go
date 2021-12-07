@@ -31,6 +31,16 @@ func NewManager() *Manager {
 	return om
 }
 
+// PathExists returns a bool that indicates if a path exists or not
+func (om *Manager) PathExists(path string) (bool, error) {
+	pathBackend, err := om.impl.GetURLBackend(om.Backends, path)
+	if err != nil {
+		return false, errors.Wrap(err, "getting URL backend")
+	}
+
+	return pathBackend.PathExists(path)
+}
+
 // Copy copies an object from a srcURL to a destination URL
 func (om *Manager) Copy(srcURL, destURL string) (err error) {
 	logrus.Infof("Transferring data from %s to %s", srcURL, destURL)

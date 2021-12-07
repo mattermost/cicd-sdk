@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	s3go "github.com/aws/aws-sdk-go/service/s3"
@@ -48,10 +49,18 @@ func (s3 *ObjectBackendS3) URLPrefix() string {
 	return URLPrefixS3
 }
 
+func (s3 *ObjectBackendS3) splitBucketPath(locationURL string) (bucket, path string, err error) {
+	u, err := url.Parse(locationURL)
+	if err != nil {
+		return bucket, path, errors.Wrap(err, "parsing source URL")
+	}
+	return u.Host, u.Path, nil
+}
+
 // copyRemoteLocal downloads a file from a bucket to the local filesystem
 func (s3 *ObjectBackendS3) copyRemoteToLocal(source, destURL string) error {
 	destPath := filepath.Join(string(filepath.Separator), strings.TrimPrefix(destURL, URLPrefixFilesystem))
-	u, err := url.Parse(source)
+	bucket, path, err := s3.splitBucketPath(source)
 	if err != nil {
 		return errors.Wrap(err, "parsing source URL")
 	}
@@ -64,11 +73,11 @@ func (s3 *ObjectBackendS3) copyRemoteToLocal(source, destURL string) error {
 
 	// Write the contents of S3 Object to the file
 	n, err := downloader.Download(f, &s3go.GetObjectInput{
-		Bucket: aws.String(u.Host),
-		Key:    aws.String(u.Path),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(path),
 	})
 	if err != nil {
-		return errors.Wrapf(err, "failed to download file %s from %s", u.Path, u.Host)
+		return errors.Wrapf(err, "failed to download file %s from %s", path, bucket)
 	}
 	logrus.Infof("Downloaded %d bytes to %s", n, destURL)
 	return nil
@@ -78,7 +87,7 @@ func (s3 *ObjectBackendS3) copyRemoteToLocal(source, destURL string) error {
 func (s3 *ObjectBackendS3) copyLocalToRemote(sourceURL, destURL string) error {
 	srcPath := filepath.Join(string(filepath.Separator), strings.TrimPrefix(sourceURL, URLPrefixFilesystem))
 	uploader := s3manager.NewUploader(&s3.session)
-	u, err := url.Parse(destURL)
+	bucket, path, err := s3.splitBucketPath(destURL)
 	if err != nil {
 		return errors.Wrap(err, "parsing source URL")
 	}
@@ -87,8 +96,8 @@ func (s3 *ObjectBackendS3) copyLocalToRemote(sourceURL, destURL string) error {
 		return errors.Wrap(err, "opening local file")
 	}
 	_, err = uploader.Upload(&s3manager.UploadInput{
-		Bucket: aws.String(u.Host),
-		Key:    aws.String(u.Path),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(path),
 		Body:   f,
 	})
 	return errors.Wrap(err, "uploading file")
@@ -102,4 +111,28 @@ func (s3 *ObjectBackendS3) CopyObject(srcURL, destURL string) error {
 		return s3.copyRemoteToLocal(srcURL, destURL)
 	}
 	return errors.New("CLoud to cloud copy is not supported yet")
+}
+
+// PathExists checks if a path exosts in the filesystem
+func (s3 *ObjectBackendS3) PathExists(nodeURL string) (bool, error) {
+	bucket, path, err := s3.splitBucketPath(nodeURL)
+	if err != nil {
+		return false, errors.Wrap(err, "parsing node URL")
+	}
+	client := s3go.New(&s3.session)
+	if _, err := client.HeadObject(&s3go.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(path),
+	}); err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case "NotFound":
+				return false, nil
+			default:
+				return false, err
+			}
+		}
+		return false, err
+	}
+	return true, nil
 }

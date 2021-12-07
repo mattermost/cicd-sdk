@@ -11,6 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/release-utils/util"
 )
 
 const URLPrefixFilesystem = "file://"
@@ -72,4 +73,9 @@ func (fsb *Filesystem) CopyObject(srcURL, destURL string) error {
 		}
 	}
 	return err
+}
+
+func (fsb *Filesystem) PathExists(path string) (bool, error) {
+	path = "/" + strings.TrimPrefix(path, URLPrefixFilesystem)
+	return util.Exists(path), nil
 }
