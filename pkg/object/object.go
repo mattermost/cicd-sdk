@@ -27,6 +27,7 @@ func NewManager() *Manager {
 	om.Backends = append(om.Backends,
 		backends.NewFilesystemWithOptions(&backends.Options{}),
 		backends.NewS3WithOptions(&backends.Options{}),
+		backends.NewGitWithOptions(&backends.Options{}),
 	)
 	return om
 }
