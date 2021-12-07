@@ -17,17 +17,18 @@ type Runner interface {
 }
 
 type Options struct {
-	Workdir           string
-	ProvenanceDir     string
-	BuildPoint        string
-	Source            string
-	ConfigFile        string
-	ConfigPoint       string
-	Log               string            // Path to file where the log will be stored
-	ErrorLog          string            // Path to file where errors will be logged to
-	EnvVars           map[string]string // String map of environment variables in var=value form
-	ExpectedArtifacts []string
-	Replacements      []replacement.Replacement
+	Workdir        string
+	ProvenanceDir  string
+	BuildPoint     string
+	Source         string
+	ConfigFile     string
+	ConfigPoint    string
+	Log            string            // Path to file where the log will be stored
+	ErrorLog       string            // Path to file where errors will be logged to
+	EnvVars        map[string]string // String map of environment variables in var=value form
+	ExpectedFiles  []string          // List of files expected to be produces
+	ExpectedImages []string          // List of image references that the build will create
+	Replacements   []replacement.Replacement
 }
 
 var DefaultOptions = &Options{

@@ -248,8 +248,9 @@ type ReplacementConfig struct {
 }
 
 type ArtifactsConfig struct {
-	Files  []string `yaml:"files"` // List of files expected from the build
-	Images []string `yaml:"images"`
+	Destination string   `yaml:"destination"` // URL to store all artifacts from the build
+	Files       []string `yaml:"files"`       // List of files expected from the build
+	Images      []string `yaml:"images"`      // List of container image references to be produced from this build
 }
 
 type TransferConfig struct {

@@ -124,7 +124,7 @@ func (r *Run) Execute() error {
 	r.isSuccess = &RUNSUCCESS
 
 	if err := r.impl.sendTransfers(r); err != nil {
-		return errors.Wrap(err, "processing artifact transfers")
+		return errors.Wrap(err, "processing specific artifact transfers")
 	}
 
 	// TODO(@puerco): normalize provenance artifacts to their
@@ -168,16 +168,16 @@ func (dri *defaultRunImplementation) processReplacements(opts *runners.Options) 
 
 // checkExpectedArtifacts verifies a list of expected artifacts
 func (dri *defaultRunImplementation) checkExpectedArtifacts(opts *runners.Options) error {
-	if opts.ExpectedArtifacts == nil {
+	if opts.ExpectedFiles == nil {
 		logrus.Info("Run has no expected artifacts")
 		return nil
 	}
-	for _, path := range opts.ExpectedArtifacts {
+	for _, path := range opts.ExpectedFiles {
 		if !util.Exists(filepath.Join(opts.Workdir, path)) {
 			return errors.Errorf("expected artifact not found: %s", path)
 		}
 	}
-	logrus.Infof("Successfully confirmed %d expected artifacts", len(opts.ExpectedArtifacts))
+	logrus.Infof("Successfully confirmed %d expected artifacts", len(opts.ExpectedFiles))
 	return nil
 }
 
@@ -229,7 +229,7 @@ func (dri *defaultRunImplementation) provenance(run *Run) (*intoto.ProvenanceSta
 		logrus.Warn("Source code and/or buildpint not set. Not adding to predicate materials")
 	}
 
-	for _, path := range run.runner.Options().ExpectedArtifacts {
+	for _, path := range run.runner.Options().ExpectedFiles {
 		ch256, err := hash.SHA256ForFile(filepath.Join(run.runner.Options().Workdir, path))
 		if err != nil {
 			return nil, errors.Wrap(err, "hashing expected artifacts to provenance subject")

@@ -173,21 +173,24 @@ type Build struct {
 }
 
 type Options struct {
-	Workdir           string
-	Source            string            // Source is the URL for the code repository
-	ExpectedArtifacts []string          // A list of expected artifacts to be produced by the build
-	EnvVars           map[string]string // Variables to set when running
-	ProvenanceDir     string            // FIrectory to save the provenance attestations
-	ConfigFile        string            // If the build was bootstarpped from a build, this is it
-	ConfigPoint       string            // git ref of the config file
-	Transfers         []TransferConfig  // List of artifacts to transfer
-	Materials         MaterialsConfig   // List of materials to use for the build
+	Workdir       string
+	Source        string            // Source is the URL for the code repository
+	EnvVars       map[string]string // Variables to set when running
+	ProvenanceDir string            // FIrectory to save the provenance attestations
+	ConfigFile    string            // If the build was bootstarpped from a build, this is it
+	ConfigPoint   string            // git ref of the config file
+	Transfers     []TransferConfig  // List of artifacts to transfer
+	Artifacts     ArtifactsConfig   // A list of expected artifacts to be produced by the build
+	Materials     MaterialsConfig   // List of materials to use for the build
 }
 
 var DefaultOptions = &Options{
-	Workdir:           ".", // Working directory where the build runs
-	ExpectedArtifacts: []string{},
-	EnvVars:           map[string]string{},
+	Workdir: ".", // Working directory where the build runs
+	Artifacts: ArtifactsConfig{
+		Files:  []string{},
+		Images: []string{},
+	},
+	EnvVars: map[string]string{},
 }
 
 // Options returns the build's option set
@@ -200,7 +203,8 @@ func (b *Build) setRunnerOptions() {
 	b.runner.Options().Workdir = b.Options().Workdir
 	b.runner.Options().EnvVars = b.Options().EnvVars
 	b.runner.Options().ProvenanceDir = b.Options().ProvenanceDir
-	b.runner.Options().ExpectedArtifacts = b.Options().ExpectedArtifacts
+	b.runner.Options().ExpectedFiles = b.Options().Artifacts.Files
+	b.runner.Options().ExpectedImages = b.Options().Artifacts.Images
 	b.runner.Options().Replacements = b.Replacements
 	b.runner.Options().Source = b.Options().Source
 	b.runner.Options().ConfigFile = b.Options().ConfigFile
@@ -277,11 +281,11 @@ func (b *Build) Load(path string) error {
 	b.Options().ProvenanceDir = conf.ProvenanceDir
 	b.Options().ConfigFile = path          // Check if its normalized to the repo dir
 	b.Options().Transfers = conf.Transfers // Artifacts to transfer out
-	b.Options().Materials = conf.Materials //
+	b.Options().Materials = conf.Materials // List of the build materials
 
 	if conf.Artifacts.Files != nil {
 		if conf.Artifacts.Files != nil {
-			b.Options().ExpectedArtifacts = conf.Artifacts.Files
+			b.Options().Artifacts = conf.Artifacts
 		}
 	}
 
