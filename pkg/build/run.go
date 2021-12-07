@@ -87,6 +87,15 @@ func (r *Run) Execute() error {
 
 	// Check if the expected materials exist in the destination
 	// if they do, finish the run now.
+	exists, err := r.impl.artifactsExist(r)
+	if err != nil {
+		return errors.Wrap(err, "checking if artifacts already exist")
+	}
+	if *exists {
+		r.isSuccess = &RUNSUCCESS
+		logrus.Info("Artifacts found in the bucket, not running build again")
+		return nil
+	}
 
 	// Download the materials to run the build
 	if err := r.impl.downloadMaterials(r); err != nil {
@@ -157,6 +166,7 @@ type runImplementation interface {
 	sendTransfers(*Run) error
 	downloadMaterials(*Run) error
 	storeArtifacts(*Run) error
+	artifactsExist(*Run) (*bool, error)
 }
 
 type defaultRunImplementation struct{}
@@ -419,4 +429,18 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 		}
 	}
 	return nil
+}
+
+// artifactsExist checks if the provenance file exists in the bucket
+func (dri *defaultRunImplementation) artifactsExist(r *Run) (exists *bool, err error) {
+	if r.opts.Artifacts.Destination == "" {
+		logrus.Info("artifact export not defined, not checking destination")
+		return nil, nil
+	}
+	manager := object.NewManager()
+	e, err := manager.PathExists(r.opts.Artifacts.Destination + "/" + "provenance.json")
+	if err != nil {
+		return exists, errors.Wrap(err, "checking if artifacts exist")
+	}
+	return &e, nil
 }
