@@ -24,6 +24,9 @@ replacements:
     tag: placeholder
     valueFrom:
       secret: TEST_SECRET
+artifacts:
+  files: ["README.md", "release-notes.md", "LICENSE", "go.mod", "go.sum"]    
+  images: ["index.docker.io/mattermost/mm-te-test:test"]
 transfers:
   - source: ["mattermost-webapp.tar.gz"]
     destination: s3://bucket1/dir/subdir/
@@ -64,6 +67,14 @@ materials:
 	require.Equal(t, conf.Replacements[0].Tag, "placeholder")
 	require.Equal(t, conf.Replacements[0].ValueFrom.Secret, "TEST_SECRET")
 	require.Equal(t, conf.Replacements[0].ValueFrom.Env, "")
+
+	require.Len(t, conf.Artifacts.Files, 5)
+	require.ElementsMatch(t,
+		[]string{"README.md", "release-notes.md", "LICENSE", "go.mod", "go.sum"},
+		conf.Artifacts.Files,
+	)
+	require.Len(t, conf.Artifacts.Images, 1)
+	require.ElementsMatch(t, []string{"index.docker.io/mattermost/mm-te-test:test"}, conf.Artifacts.Images)
 
 	require.Len(t, conf.Transfers, 2)
 	require.Equal(t, conf.Transfers[0].Destination, "s3://bucket1/dir/subdir/")
