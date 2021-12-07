@@ -27,16 +27,19 @@ var (
 	RUNFAIL    = false
 )
 
+const ProvenanceFilename = "provenance.json"
+
 // Run asbtracts a build run
 type Run struct {
-	impl      runImplementation
-	id        int
-	opts      *RunOptions
-	Created   time.Time
-	StartTime time.Time
-	EndTime   time.Time
-	runner    runners.Runner
-	isSuccess *bool
+	impl           runImplementation
+	id             int
+	opts           *RunOptions
+	Created        time.Time
+	StartTime      time.Time
+	EndTime        time.Time
+	runner         runners.Runner
+	isSuccess      *bool
+	ProvenancePath string
 }
 
 // RunOptions control specific bits of a build run
@@ -134,12 +137,6 @@ func (r *Run) Execute() error {
 		return errors.Wrap(err, "verifying artifacts")
 	}
 
-	if err := r.impl.storeArtifacts(r); err != nil {
-		return errors.Wrap(err, "transferring artifacts to destination")
-	}
-
-	r.isSuccess = &RUNSUCCESS
-
 	if err := r.impl.sendTransfers(r); err != nil {
 		return errors.Wrap(err, "processing specific artifact transfers")
 	}
@@ -149,6 +146,12 @@ func (r *Run) Execute() error {
 	if r.impl.writeProvenance(r) != nil {
 		return errors.Wrap(err, "writing provenance metadata")
 	}
+
+	if err := r.impl.storeArtifacts(r); err != nil {
+		return errors.Wrap(err, "transferring artifacts to destination")
+	}
+
+	r.isSuccess = &RUNSUCCESS
 
 	return nil
 }
@@ -292,11 +295,6 @@ func (dri *defaultRunImplementation) provenance(r *Run) (*intoto.ProvenanceState
 // writeProvenance outputs the provenance metadata to the
 // specified directory.
 func (dri *defaultRunImplementation) writeProvenance(r *Run) error {
-	if r.runner.Options().ProvenanceDir == "" {
-		logrus.Info("Not writing provenance metadata")
-		return nil
-	}
-
 	// Generate the attestation
 	statement, err := dri.provenance(r)
 	if err != nil {
@@ -307,13 +305,17 @@ func (dri *defaultRunImplementation) writeProvenance(r *Run) error {
 		logrus.Fatal(errors.Wrap(err, "marshalling provenance attestation"))
 	}
 
+	dir := os.TempDir()
+	if r.runner.Options().ProvenanceDir != "" {
+		dir = r.runner.Options().ProvenanceDir
+	}
 	filename := filepath.Join(
-		r.runner.Options().ProvenanceDir,
-		fmt.Sprintf("provenance-%d-%s.json", os.Getpid(), r.ID()),
+		dir, fmt.Sprintf("provenance-%d-%s.json", os.Getpid(), r.ID()),
 	)
 	if err := os.WriteFile(filename, data, os.FileMode(0o644)); err != nil {
 		return errors.Wrap(err, "writing provenance metadata to file")
 	}
+	r.ProvenancePath = filename
 	logrus.Infof("Provenance metadata written to %s", filename)
 	return nil
 }
@@ -433,7 +435,14 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 			)
 		}
 	}
-	return nil
+
+	return errors.Wrap(
+		manager.Copy(
+			"file:/"+r.ProvenancePath,
+			r.opts.Artifacts.Destination+string(filepath.Separator)+ProvenanceFilename,
+		),
+		"copying provenance metadata to artifact destination",
+	)
 }
 
 // artifactsExist checks if the provenance file exists in the bucket
@@ -443,9 +452,10 @@ func (dri *defaultRunImplementation) artifactsExist(r *Run) (exists *bool, err e
 		return nil, nil
 	}
 	manager := object.NewManager()
-	e, err := manager.PathExists(r.opts.Artifacts.Destination + "/" + "provenance.json")
+	e, err := manager.PathExists(r.opts.Artifacts.Destination + string(filepath.Separator) + ProvenanceFilename)
 	if err != nil {
 		return exists, errors.Wrap(err, "checking if artifacts exist")
 	}
+	logrus.Infof("Manager returned %v for artifacts", e)
 	return &e, nil
 }

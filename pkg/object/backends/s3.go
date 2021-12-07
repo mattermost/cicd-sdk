@@ -120,6 +120,7 @@ func (s3 *ObjectBackendS3) PathExists(nodeURL string) (bool, error) {
 		return false, errors.Wrap(err, "parsing node URL")
 	}
 	client := s3go.New(&s3.session)
+	logrus.Debugf("Checking if %s exists in %s", path, bucket)
 	if _, err := client.HeadObject(&s3go.HeadObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(path),
