@@ -85,6 +85,9 @@ func (r *Run) Execute() error {
 		}
 	}()
 
+	// Check if the expected materials exist in the destination
+	// if they do, finish the run now.
+
 	// Download the materials to run the build
 	if err := r.impl.downloadMaterials(r); err != nil {
 		return errors.Wrap(err, "downloading materials")
@@ -103,7 +106,7 @@ func (r *Run) Execute() error {
 		return errors.Wrap(err, "applying run replacement data")
 	}
 
-	// Add a logfile. FOr now just a tmporary file
+	// Add a logfile. For now just a temporary file
 	outputFile, err := os.CreateTemp("", "builder-run-*.log")
 	if err != nil {
 		return errors.Wrap(err, "creating temporary file for log")
