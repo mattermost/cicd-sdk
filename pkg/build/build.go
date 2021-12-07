@@ -203,8 +203,6 @@ func (b *Build) setRunnerOptions() {
 	b.runner.Options().Workdir = b.Options().Workdir
 	b.runner.Options().EnvVars = b.Options().EnvVars
 	b.runner.Options().ProvenanceDir = b.Options().ProvenanceDir
-	b.runner.Options().ExpectedFiles = b.Options().Artifacts.Files
-	b.runner.Options().ExpectedImages = b.Options().Artifacts.Images
 	b.runner.Options().Replacements = b.Replacements
 	b.runner.Options().Source = b.Options().Source
 	b.runner.Options().ConfigFile = b.Options().ConfigFile
@@ -219,6 +217,7 @@ func (b *Build) Run() *Run {
 	opts := DefaultRunOptions
 	opts.Transfers = b.Options().Transfers
 	opts.Materials = b.Options().Materials
+	opts.Artifacts = b.opts.Artifacts
 	return b.RunWithOptions(opts)
 }
 

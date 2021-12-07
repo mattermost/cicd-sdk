@@ -43,6 +43,7 @@ type Run struct {
 type RunOptions struct {
 	BuildPoint string
 	Materials  MaterialsConfig  // List of materials for the build
+	Artifacts  ArtifactsConfig  // Artifacts configuration
 	Transfers  []TransferConfig // Artifacts to transfer out
 }
 
@@ -116,9 +117,13 @@ func (r *Run) Execute() error {
 		return errors.Wrapf(err, "[exec error in run #%s]", r.ID())
 	}
 
-	if err := r.impl.checkExpectedArtifacts(r.runner.Options()); err != nil {
+	if err := r.impl.checkExpectedArtifacts(r); err != nil {
 		logrus.Error("Error verifying expected artifacts")
 		return errors.Wrap(err, "verifying artifacts")
+	}
+
+	if err := r.impl.storeArtifacts(r); err != nil {
+		return errors.Wrap(err, "transferring artifacts to destination")
 	}
 
 	r.isSuccess = &RUNSUCCESS
@@ -142,12 +147,13 @@ func (r *Run) Provenance() (*intoto.ProvenanceStatement, error) {
 
 type runImplementation interface {
 	processReplacements(*runners.Options) error
-	checkExpectedArtifacts(opts *runners.Options) error
+	checkExpectedArtifacts(*Run) error
 	provenance(*Run) (*intoto.ProvenanceStatement, error)
 	writeProvenance(*Run) error
 	checkoutBuildPoint(*Run) error
 	sendTransfers(*Run) error
 	downloadMaterials(*Run) error
+	storeArtifacts(*Run) error
 }
 
 type defaultRunImplementation struct{}
@@ -167,24 +173,24 @@ func (dri *defaultRunImplementation) processReplacements(opts *runners.Options) 
 }
 
 // checkExpectedArtifacts verifies a list of expected artifacts
-func (dri *defaultRunImplementation) checkExpectedArtifacts(opts *runners.Options) error {
-	if opts.ExpectedFiles == nil {
+func (dri *defaultRunImplementation) checkExpectedArtifacts(r *Run) error {
+	if r.opts.Artifacts.Files == nil {
 		logrus.Info("Run has no expected artifacts")
 		return nil
 	}
-	for _, path := range opts.ExpectedFiles {
-		if !util.Exists(filepath.Join(opts.Workdir, path)) {
+	for _, path := range r.opts.Artifacts.Files {
+		if !util.Exists(filepath.Join(r.runner.Options().Workdir, path)) {
 			return errors.Errorf("expected artifact not found: %s", path)
 		}
 	}
-	logrus.Infof("Successfully confirmed %d expected artifacts", len(opts.ExpectedFiles))
+	logrus.Infof("Successfully confirmed %d expected artifacts", len(r.opts.Artifacts.Files))
 	return nil
 }
 
-func (dri *defaultRunImplementation) provenance(run *Run) (*intoto.ProvenanceStatement, error) {
+func (dri *defaultRunImplementation) provenance(r *Run) (*intoto.ProvenanceStatement, error) {
 	// Generate the environment struct
 	envData := map[string]string{}
-	for v, val := range run.runner.Options().EnvVars {
+	for v, val := range r.runner.Options().EnvVars {
 		envData[v] = val
 	}
 
@@ -199,17 +205,17 @@ func (dri *defaultRunImplementation) provenance(run *Run) (*intoto.ProvenanceSta
 			Builder: v02.ProvenanceBuilder{
 				ID: BuilderID,
 			},
-			BuildType: run.runner.ID(),
+			BuildType: r.runner.ID(),
 			Invocation: v02.ProvenanceInvocation{
 				ConfigSource: v02.ConfigSource{},
-				Parameters:   run.runner.Arguments(),
+				Parameters:   r.runner.Arguments(),
 				Environment:  envData,
 			},
 			BuildConfig: nil,
 			Metadata: &v02.ProvenanceMetadata{
 				BuildInvocationID: "",
-				BuildStartedOn:    &run.StartTime,
-				BuildFinishedOn:   &run.EndTime,
+				BuildStartedOn:    &r.StartTime,
+				BuildFinishedOn:   &r.EndTime,
 				Completeness:      v02.ProvenanceComplete{},
 				Reproducible:      false,
 			},
@@ -218,24 +224,24 @@ func (dri *defaultRunImplementation) provenance(run *Run) (*intoto.ProvenanceSta
 		},
 	}
 
-	if run.runner.Options().Source != "" && run.runner.Options().BuildPoint != "" {
+	if r.runner.Options().Source != "" && r.runner.Options().BuildPoint != "" {
 		statement.Predicate.Materials = append(statement.Predicate.Materials, v02.ProvenanceMaterial{
-			URI: "git+" + run.runner.Options().Source,
+			URI: "git+" + r.runner.Options().Source,
 			Digest: map[string]string{
-				"sha1": run.runner.Options().BuildPoint,
+				"sha1": r.runner.Options().BuildPoint,
 			},
 		})
 	} else {
 		logrus.Warn("Source code and/or buildpint not set. Not adding to predicate materials")
 	}
 
-	for _, path := range run.runner.Options().ExpectedFiles {
-		ch256, err := hash.SHA256ForFile(filepath.Join(run.runner.Options().Workdir, path))
+	for _, path := range r.opts.Artifacts.Files {
+		ch256, err := hash.SHA256ForFile(filepath.Join(r.runner.Options().Workdir, path))
 		if err != nil {
 			return nil, errors.Wrap(err, "hashing expected artifacts to provenance subject")
 		}
 
-		ch512, err := hash.SHA512ForFile(filepath.Join(run.runner.Options().Workdir, path))
+		ch512, err := hash.SHA512ForFile(filepath.Join(r.runner.Options().Workdir, path))
 		if err != nil {
 			return nil, errors.Wrap(err, "hashing expected artifacts to provenance subject")
 		}
@@ -254,15 +260,15 @@ func (dri *defaultRunImplementation) provenance(run *Run) (*intoto.ProvenanceSta
 	}
 
 	// Add the configuration file if we have one
-	if run.runner.Options().ConfigFile != "" {
+	if r.runner.Options().ConfigFile != "" {
 		statement.Predicate.Invocation.ConfigSource = v02.ConfigSource{
-			URI: strings.TrimPrefix(run.runner.Options().ConfigFile, run.runner.Options().Workdir),
+			URI: strings.TrimPrefix(r.runner.Options().ConfigFile, r.runner.Options().Workdir),
 		}
 
 		// If the rundata has the git config point, record it
-		if run.runner.Options().ConfigPoint != "" {
+		if r.runner.Options().ConfigPoint != "" {
 			statement.Predicate.Invocation.ConfigSource.Digest = map[string]string{
-				"sha1": run.runner.Options().ConfigPoint,
+				"sha1": r.runner.Options().ConfigPoint,
 			}
 		}
 	}
@@ -380,5 +386,34 @@ func (dri *defaultRunImplementation) downloadMaterials(r *Run) error {
 		}
 	}
 
+	return nil
+}
+
+// storeArtifacts stores the builds artifacts into the expected bucket
+func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
+	if r.opts.Artifacts.Destination == "" {
+		logrus.Info("No artifacts store defined. Not copying")
+		return nil
+	}
+
+	if r.opts.Artifacts.Files == nil {
+		logrus.Info("No artifacts expected, not copying to store")
+		return nil
+	}
+
+	// Create an object manager to copy the files
+	manager := object.NewManager()
+	// TODO(@puerco): This should be parallelized in the object manager
+	for _, fname := range r.opts.Artifacts.Files {
+		if err := manager.Copy(
+			"file:/"+filepath.Join(r.runner.Options().Workdir, fname),
+			r.opts.Artifacts.Destination+string(filepath.Separator)+fname,
+		); err != nil {
+			return errors.Wrapf(
+				err, "copying %s to %s",
+				fname, r.opts.Artifacts.Destination,
+			)
+		}
+	}
 	return nil
 }
