@@ -16,6 +16,8 @@ type Manager struct {
 	Backends []backends.Backend
 }
 
+const URLPrefixFilesystem = "file://"
+
 // NewObjectManager returns a new object manager with default options
 func NewManager() *Manager {
 	// Return a new object manager. It always includesd a file handler
@@ -61,10 +63,13 @@ func (om *Manager) Copy(srcURL, destURL string) (err error) {
 	}
 
 	// For now, we err no cloud to cloud copy operations
-	if (dstBackend).URLPrefix() != "file://" && (srcBackend).URLPrefix() != "file://" {
+	if (dstBackend).URLPrefix() != URLPrefixFilesystem && (srcBackend).URLPrefix() != URLPrefixFilesystem {
 		return errors.New("cloud to cloud operations are not yet supported")
 	}
 
+	if (srcBackend).URLPrefix() != URLPrefixFilesystem {
+		return (srcBackend).CopyObject(srcURL, destURL)
+	}
 	return (dstBackend).CopyObject(srcURL, destURL)
 }
 

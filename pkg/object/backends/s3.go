@@ -111,7 +111,7 @@ func (s3 *ObjectBackendS3) CopyObject(srcURL, destURL string) error {
 	if strings.HasPrefix(destURL, URLPrefixFilesystem) {
 		return s3.copyRemoteToLocal(srcURL, destURL)
 	}
-	return errors.New("CLoud to cloud copy is not supported yet")
+	return errors.New("Cloud to cloud copy is not supported yet")
 }
 
 // PathExists checks if a path exosts in the filesystem
