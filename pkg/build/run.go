@@ -4,10 +4,12 @@
 package build
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -44,7 +46,8 @@ type Run struct {
 
 // RunOptions control specific bits of a build run
 type RunOptions struct {
-	BuildPoint string
+	ForceBuild bool             // When true, build will run even if artifacts exist already
+	BuildPoint string           // git build point where the build will run
 	Materials  MaterialsConfig  // List of materials for the build
 	Artifacts  ArtifactsConfig  // Artifacts configuration
 	Transfers  []TransferConfig // Artifacts to transfer out
@@ -95,9 +98,12 @@ func (r *Run) Execute() error {
 		return errors.Wrap(err, "checking if artifacts already exist")
 	}
 	if *exists {
-		r.isSuccess = &RUNSUCCESS
-		logrus.Info("Artifacts found in the bucket, not running build again")
-		return nil
+		if !r.opts.ForceBuild {
+			r.isSuccess = &RUNSUCCESS
+			logrus.Info("Artifacts found in the bucket, not running build again")
+			return nil
+		}
+		logrus.Info("Artifacts exist, but ForceBuild option is set, running build.")
 	}
 
 	// Download the materials to run the build
@@ -458,4 +464,58 @@ func (dri *defaultRunImplementation) artifactsExist(r *Run) (exists *bool, err e
 	}
 	logrus.Infof("Manager returned %v for artifacts", e)
 	return &e, nil
+}
+
+// stagingPath returns a predictable path for the run where the run
+// can stage its artifacts. These paths can be recomputed based on
+// the build materials.
+//
+// Note that this hash is intended only for the staging directories
+// where the build system stores its artifacts. They are not intended
+// for human use.
+func (dri *defaultRunImplementation) stagingPath(r *Run) (string, error) {
+	if r.opts.BuildPoint == "" && r.opts.Materials == nil {
+		return "", errors.New("unable to produce satging path without buildpoint or artifacts")
+	}
+	if r.opts.BuildPoint == "" && len(r.opts.Materials) == 0 {
+		return "", errors.New("unable to produce satging path without buildpoint or artifacts")
+	}
+
+	// The algorithm to determine the staging path is:
+	// 1. Sort the materials by URI
+	// 2. Concat: buildpoint + (materials.URL[n]+materials.Sha[n])
+	// 2a: Sha should be the first sha found using: this order: sha1 sha256 sha512 (else fail)
+	// 3. Hash the whole string sha256
+
+	str := r.opts.BuildPoint
+	list := []string{}
+	arts := map[string]string{}
+	// Cycle the shas and pickup the first hash defined according
+	// to the criteria above
+	if r.opts.Materials != nil {
+		for _, m := range r.opts.Materials {
+			list = append(list, m.URI)
+			arts[m.URI] = ""
+			for _, algo := range []string{"sha1", "sha256", "sha512"} {
+				if v, ok := m.Digest[algo]; ok {
+					arts[m.URI] = v
+					break
+				}
+			}
+			if arts[m.URI] == "" {
+				return "", errors.Errorf("unable to locate sha for %s in materials config", m.URI)
+			}
+		}
+	}
+
+	// Sort the URIs to make the list predictable
+	sort.Strings(list)
+
+	// Concat the strings and hashes
+	for _, u := range list {
+		str += u + arts[u]
+	}
+
+	// Hash the string
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(str))), nil
 }
