@@ -14,10 +14,10 @@ import (
 
 const URLPrefixGit = "git+"
 
+// TODO(@puerco) this regexp must be corrected, not necesarilly the hash is the end
 var revRegex = regexp.MustCompile("@([a-f0-9]{40})$")
 
-type ObjectBackendGit struct {
-}
+type ObjectBackendGit struct{}
 
 func NewGitWithOptions(opts *Options) *ObjectBackendGit {
 	return &ObjectBackendGit{}
@@ -36,7 +36,7 @@ func (g *ObjectBackendGit) copyRemoteToLocal(source, destURL string) error {
 	// Parse the URL to get the parts
 
 	gc := git.New()
-	// TODO: We need an algo to determine if we want a respository file. For now, only
+	// TODO: We need an algo to determine if we want a repository file. For now, only
 	// referencing the whole repo will work.
 	// See https://spdx.github.io/spdx-spec/package-information/#771-description
 	rev := ""
@@ -80,4 +80,24 @@ func (g *ObjectBackendGit) CopyObject(srcURL, destURL string) error {
 		return g.copyRemoteToLocal(srcURL, destURL)
 	}
 	return errors.New("CLoud to cloud copy is not supported yet")
+}
+
+// GetObjectHash returns the hash of an object. In the case of data stored
+// in a git repo, all artifacts return the hash of the repo commit
+func (g *ObjectBackendGit) GetObjectHash(objectURL string) (hashes map[string]string, err error) {
+	// First, lets try to get the hash from the URL itself
+	m := revRegex.FindAllString(objectURL, 1)
+	if len(m) > 0 {
+		return map[string]string{"sha1": m[0][1:]}, nil
+	}
+
+	// If we were unable to fetch it from the URL, we have to query the repo
+	// TODO(@puerco): Trim the URL of hashes and refs, recognize branch if included
+	gc := git.New()
+	output, err := gc.LsRemote(objectURL, "HEAD")
+	if err != nil {
+		return nil, errors.Wrap(err, "querying remote for HEAD hash")
+	}
+	parts := strings.Fields(output)
+	return map[string]string{"sha1": parts[0]}, nil
 }

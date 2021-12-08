@@ -68,6 +68,15 @@ func (om *Manager) Copy(srcURL, destURL string) (err error) {
 	return (dstBackend).CopyObject(srcURL, destURL)
 }
 
+// GetObjectHash returns the available hashes for an object
+func (om *Manager) GetObjectHash(objectURL string) (map[string]string, error) {
+	be, err := om.impl.GetURLBackend(om.Backends, objectURL)
+	if err != nil {
+		return nil, errors.Wrap(err, "getting backend for URL")
+	}
+	return be.GetObjectHash(objectURL)
+}
+
 type ManagerImplementation interface {
 	GetURLBackend([]backends.Backend, string) (backends.Backend, error)
 }

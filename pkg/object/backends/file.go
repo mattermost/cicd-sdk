@@ -11,6 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/release-utils/hash"
 	"sigs.k8s.io/release-utils/util"
 )
 
@@ -78,4 +79,26 @@ func (fsb *Filesystem) CopyObject(srcURL, destURL string) error {
 func (fsb *Filesystem) PathExists(path string) (bool, error) {
 	path = "/" + strings.TrimPrefix(path, URLPrefixFilesystem)
 	return util.Exists(path), nil
+}
+
+// GetObjectHash returns the hashes of the specified file
+func (fsb *Filesystem) GetObjectHash(objectURL string) (hashes map[string]string, err error) {
+	objectURL = "/" + strings.TrimPrefix(objectURL, URLPrefixFilesystem)
+
+	fs := map[string]func(string) (string, error){
+		"sha1":   hash.SHA1ForFile,
+		"sha256": hash.SHA256ForFile,
+		"sha512": hash.SHA512ForFile,
+	}
+
+	hashes = map[string]string{}
+	for algo, fn := range fs {
+		h, err := fn(objectURL)
+		if err != nil {
+			return nil, errors.Wrapf(err, "generating %s for object", objectURL)
+		}
+		hashes[algo] = h
+	}
+
+	return hashes, nil
 }

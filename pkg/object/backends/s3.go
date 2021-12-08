@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/release-utils/hash"
 )
 
 const URLPrefixS3 = "s3://"
@@ -136,4 +137,35 @@ func (s3 *ObjectBackendS3) PathExists(nodeURL string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// GetObjectHash returns a hash of a remote object. In S3, there are no
+// APIs to get the file hash so we have to download and sum.
+func (s3 *ObjectBackendS3) GetObjectHash(objectURL string) (hashes map[string]string, err error) {
+	// Create a temporary directory to store the file
+	f, err := os.CreateTemp("", "object-hashing-")
+	if err != nil {
+		return nil, errors.Wrap(err, "creating temporary file")
+	}
+	defer os.Remove(f.Name())
+
+	if err := s3.copyRemoteToLocal(objectURL, "file:/"+f.Name()); err != nil {
+		return nil, errors.Wrap(err, "downloading obkect from s3")
+	}
+
+	fs := map[string]func(string) (string, error){
+		"sha1":   hash.SHA1ForFile,
+		"sha256": hash.SHA256ForFile,
+		"sha512": hash.SHA512ForFile,
+	}
+
+	hashes = map[string]string{}
+	for algo, fn := range fs {
+		h, err := fn(f.Name())
+		if err != nil {
+			return nil, errors.Wrapf(err, "generating %s for object", objectURL)
+		}
+		hashes[algo] = h
+	}
+	return hashes, nil
 }

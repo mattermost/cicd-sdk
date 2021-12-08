@@ -33,5 +33,4 @@ func TestGitRemoteCopy(t *testing.T) {
 	require.NoError(t, g.copyRemoteToLocal("git+https://github.com/mattermost/cicd-sdk.git@61781b88e2aa98de64860ac2fd14384bf0224f53", "file:/"+dir2))
 	require.NoError(t, err)
 	require.True(t, util.Exists(filepath.Join(dir2, "pkg/build/replacement.go")))
-
 }
