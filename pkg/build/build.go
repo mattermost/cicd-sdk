@@ -218,6 +218,7 @@ func (b *Build) Run() *Run {
 	opts.Transfers = b.Options().Transfers
 	opts.Materials = b.Options().Materials
 	opts.Artifacts = b.opts.Artifacts
+	opts.ForceBuild = true
 	return b.RunWithOptions(opts)
 }
 
