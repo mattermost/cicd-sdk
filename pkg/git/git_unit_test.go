@@ -51,3 +51,11 @@ func TestOpenRepo(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, o.Output(), "First Commit")
 }
+
+func TestLSRemote(t *testing.T) {
+	impl := defaultGitImpl{}
+	res, err := impl.lsRemote("https://github.com/mattermost/mattermost-server", "release-6.1")
+	require.NoError(t, err)
+	require.Contains(t, res, "f39534a2a28036a249d8f584e6fd489b7535a610")
+	require.Contains(t, res, "refs/heads/release-6.1")
+}

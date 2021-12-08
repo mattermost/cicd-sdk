@@ -6,6 +6,7 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/pkg/errors"
+	"sigs.k8s.io/release-utils/command"
 	"sigs.k8s.io/release-utils/util"
 )
 
@@ -39,6 +40,7 @@ func NewWithOptions(opts *Options) *Git {
 type gitImplementation interface {
 	openRepo(path string) (repo *Repository, err error)
 	cloneRepo(url, path string) (repo *Repository, err error)
+	lsRemote(args ...string) (string, error)
 }
 
 func (g *Git) OpenRepo(path string) (repo *Repository, err error) {
@@ -47,6 +49,10 @@ func (g *Git) OpenRepo(path string) (repo *Repository, err error) {
 
 func (g *Git) CloneRepo(url, path string) (repo *Repository, err error) {
 	return g.impl.cloneRepo(url, path)
+}
+
+func (g *Git) LsRemote(args ...string) (string, error) {
+	return g.impl.lsRemote(args...)
 }
 
 // OpenOrCloneRepo
@@ -98,4 +104,12 @@ func (di *defaultGitImpl) cloneRepo(url, path string) (repo *Repository, err err
 	repo = NewRepositoryWithOptions(opts)
 	repo.SetClient(gogitrepo)
 	return repo, nil
+}
+
+// lsRemote executes ls remote and returns the output
+func (di *defaultGitImpl) lsRemote(args ...string) (string, error) {
+	o, err := command.New(
+		gitCommand, append([]string{"ls-remote"}, args...)...,
+	).RunSuccessOutput()
+	return o.Output(), err
 }
