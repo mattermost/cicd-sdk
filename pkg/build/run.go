@@ -176,6 +176,7 @@ type runImplementation interface {
 	downloadMaterials(*Run) error
 	storeArtifacts(*Run) error
 	artifactsExist(*Run) (*bool, error)
+	getLatestMaterialHash(*Run, string) (map[string]string, error)
 }
 
 type defaultRunImplementation struct{}
@@ -397,13 +398,34 @@ func (dri *defaultRunImplementation) downloadMaterials(r *Run) error {
 		return errors.Wrap(err, "creating materials directory")
 	}
 
+	// We can run without materials being hased. But we have to record the
+	// the version we are getting to make sure we attest what we intake
+	needHash := map[string]struct{}{}
+	for _, m := range r.opts.Materials {
+		if m.Digest != nil {
+			if len(m.Digest) == 0 {
+				needHash[m.URI] = struct{}{}
+			}
+		}
+	}
+
 	manager := object.NewManager()
 
 	// TODO: Parallelize downloads
-	for _, m := range r.opts.Materials {
+	for i, m := range r.opts.Materials {
 		logrus.Infof("Downloading from %s", m.URI)
 		if err := manager.Copy(m.URI, "file:/"+materialsDir); err != nil {
 			return errors.Wrap(err, "copying artifact")
+		}
+
+		// Check if we need to fetch the latest hash from the material
+		if _, ok := needHash[m.URI]; ok {
+			digestSet, err := dri.getLatestMaterialHash(r, m.URI)
+			if err != nil {
+				return errors.Wrapf(err, "getting latest hash for %s", m.URI)
+			}
+			logrus.Infof("Got latest hashes for material #%d: %+v", i, digestSet)
+			r.opts.Materials[i].Digest = digestSet
 		}
 	}
 
@@ -518,4 +540,8 @@ func (dri *defaultRunImplementation) stagingPath(r *Run) (string, error) {
 
 	// Hash the string
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(str))), nil
+}
+
+func (dri *defaultRunImplementation) getLatestMaterialHash(r *Run, url string) (map[string]string, error) {
+	return object.NewManager().GetObjectHash(url)
 }
