@@ -344,6 +344,7 @@ func (dri *defaultRunImplementation) checkoutBuildPoint(r *Run) error {
 		}
 		commitSha := output.OutputTrimNL()
 		r.runner.Options().BuildPoint = commitSha
+		r.opts.BuildPoint = commitSha
 		logrus.Infof("HEAD commit is %s", commitSha)
 		return nil
 	}
@@ -444,8 +445,22 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 		return nil
 	}
 
+	stagingPath, err := dri.stagingPath(r)
+	if err != nil {
+		return errors.Wrap(err, "getting staging directory")
+	}
+
+	// Determine the artifacts detination
+	targetURL := r.opts.Artifacts.Destination
+	if strings.Contains(targetURL, "${MMBUILD_STAGEPATH}") {
+		targetURL = strings.ReplaceAll(targetURL, "${MMBUILD_STAGEPATH}", stagingPath)
+	} else {
+		targetURL = targetURL + string(filepath.Separator) + stagingPath
+	}
+
 	// Create an object manager to copy the files
 	manager := object.NewManager()
+
 	// TODO(@puerco): This should be parallelized in the object manager
 	for _, fname := range r.opts.Artifacts.Files {
 		rpath, err := filepath.Abs(filepath.Join(r.runner.Options().Workdir, fname))
@@ -455,11 +470,11 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 		// Copy the file to the artifact destination
 		if err := manager.Copy(
 			"file:/"+rpath,
-			r.opts.Artifacts.Destination+string(filepath.Separator)+fname,
+			targetURL+string(filepath.Separator)+fname,
 		); err != nil {
 			return errors.Wrapf(
 				err, "copying %s to %s",
-				fname, r.opts.Artifacts.Destination,
+				fname, targetURL,
 			)
 		}
 	}
