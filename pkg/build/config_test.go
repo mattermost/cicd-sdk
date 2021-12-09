@@ -2,6 +2,7 @@ package build
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,18 @@ replacements:
     tag: placeholder
     valueFrom:
       secret: TEST_SECRET
+artifacts:
+  files: ["README.md", "release-notes.md", "LICENSE", "go.mod", "go.sum"]    
+  images: ["index.docker.io/mattermost/mm-te-test:test"]
+transfers:
+  - source: ["mattermost-webapp.tar.gz"]
+    destination: s3://bucket1/dir/subdir/
+  - source: ["mmctl", "mmctl.sha512"]
+    destination: s3://bucket2/projectname/dir/
+materials:
+  - source: "git+https://github.com/foo/bar.git"
+    digest:
+      sha1: e97447134cd650ee9f9da5d705a06d3c548d3d6c
 `
 	f, err := os.CreateTemp("", "yaml-test-")
 	require.NoError(t, err)
@@ -54,6 +67,25 @@ replacements:
 	require.Equal(t, conf.Replacements[0].Tag, "placeholder")
 	require.Equal(t, conf.Replacements[0].ValueFrom.Secret, "TEST_SECRET")
 	require.Equal(t, conf.Replacements[0].ValueFrom.Env, "")
+
+	require.Len(t, conf.Artifacts.Files, 5)
+	require.ElementsMatch(t,
+		[]string{"README.md", "release-notes.md", "LICENSE", "go.mod", "go.sum"},
+		conf.Artifacts.Files,
+	)
+	require.Len(t, conf.Artifacts.Images, 1)
+	require.ElementsMatch(t, []string{"index.docker.io/mattermost/mm-te-test:test"}, conf.Artifacts.Images)
+
+	require.Len(t, conf.Transfers, 2)
+	require.Equal(t, conf.Transfers[0].Destination, "s3://bucket1/dir/subdir/")
+	require.Equal(t, conf.Transfers[0].Source, []string{"mattermost-webapp.tar.gz"})
+	require.Equal(t, conf.Transfers[1].Destination, "s3://bucket2/projectname/dir/")
+	require.Equal(t, conf.Transfers[1].Source, []string{"mmctl", "mmctl.sha512"})
+
+	require.Equal(t, conf.Materials[0].URI, "")
+	require.Len(t, conf.Materials, 1)
+	require.Len(t, conf.Materials[0].Digest, 1)
+	require.Equal(t, conf.Materials[0].Digest["sha1"], "e97447134cd650ee9f9da5d705a06d3c548d3d6c")
 }
 
 func TestConfigValidate(t *testing.T) {
@@ -110,4 +142,50 @@ func TestConfigValidate(t *testing.T) {
 			require.NoError(t, sut.Validate())
 		}
 	}
+}
+
+var sampleConfWithVars = `transfers:
+  - source: ["mattermost-webapp.tar.gz"]
+    destination: s3://${BUCKET}/gitlab/${PROJECT_NAME}/ee/test/${COMMIT_SHA}
+  - source: ["mattermost-webapp.tar.gz"]
+    destination: s3://${BUCKET}/gitlab/${PROJECT_NAME}/te/${COMMIT_SHA}
+`
+
+func TestExtractConfigVariables(t *testing.T) {
+	flags := extractConfigVariables([]byte(sampleConfWithVars))
+	require.Len(t, flags, 3)
+	require.ElementsMatch(t, flags, []string{"BUCKET", "PROJECT_NAME", "COMMIT_SHA"})
+}
+
+func TestReplaceVariables(t *testing.T) {
+	envReplacements := `env:
+  - var: BUCKET
+    value: mattermost-release
+  - var: PROJECT_NAME
+    value: project
+  - var: COMMIT_SHA
+    value: d642f2cd18bf96a3da793d6e594da3b7029c6ca2
+`
+
+	// Test replacing data from env variables defined in the yaml itself:
+	newYaml, err := replaceVariables([]byte(sampleConfWithVars + envReplacements))
+	require.NoError(t, err)
+	require.NotEqual(t, newYaml, []byte(sampleConfWithVars+envReplacements))
+	require.True(t, strings.Contains(string(newYaml), "destination: s3://mattermost-release/gitlab/project/te/d642f2cd18bf96a3da793d6e594da3b7029c6ca2"))
+	require.True(t, strings.Contains(string(newYaml), "destination: s3://mattermost-release/gitlab/project/ee/test/d642f2cd18bf96a3da793d6e594da3b7029c6ca2"))
+
+	// Test replacing data from the system environment variables:
+
+	// First. Without the defined values, this should throw an error
+	_, err = replaceVariables([]byte(sampleConfWithVars))
+	require.NoError(t, err)
+
+	// Now set the environment vars and retest
+	os.Setenv("BUCKET", "mattermost-release")
+	os.Setenv("PROJECT_NAME", "project")
+	os.Setenv("COMMIT_SHA", "d642f2cd18bf96a3da793d6e594da3b7029c6ca2")
+	newYaml, err = replaceVariables([]byte(sampleConfWithVars))
+	require.NoError(t, err)
+	require.True(t, strings.Contains(string(newYaml), "destination: s3://mattermost-release/gitlab/project/te/d642f2cd18bf96a3da793d6e594da3b7029c6ca2"))
+	require.True(t, strings.Contains(string(newYaml), "destination: s3://mattermost-release/gitlab/project/ee/test/d642f2cd18bf96a3da793d6e594da3b7029c6ca2"))
 }

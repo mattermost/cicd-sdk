@@ -11,4 +11,6 @@ type Backend interface {
 	URLPrefix() string
 	CopyObject(srcURL, destURL string) error
 	Prefixes() []string
+	PathExists(string) (bool, error)
+	GetObjectHash(string) (map[string]string, error)
 }

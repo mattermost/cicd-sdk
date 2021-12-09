@@ -5,7 +5,9 @@ package runners
 
 import (
 	"fmt"
+	"os"
 
+	"github.com/pkg/errors"
 	"sigs.k8s.io/release-utils/command"
 )
 
@@ -27,10 +29,9 @@ type Make struct {
 func NewMake(args ...string) Runner {
 	return &Make{
 		baseRunner: baseRunner{
-			id:     makeMoniker,
-			output: "",
-			opts:   DefaultOptions,
-			args:   args,
+			id:   makeMoniker,
+			opts: DefaultOptions,
+			args: args,
 		},
 	}
 }
@@ -44,12 +45,25 @@ func (m *Make) Run() error {
 
 	cmd := command.NewWithWorkDir(m.Options().Workdir, makeCmd, m.args...).Env(envStr...)
 
-	output, err := cmd.RunSuccessOutput()
-	if err != nil {
-		return err
+	if m.Options().Log != "" {
+		oLog, err := os.Create(m.Options().Log)
+		if err != nil {
+			return errors.Wrap(err, "opening output log")
+		}
+		cmd.AddOutputWriter(oLog)
 	}
 
-	m.output = output.Output()
+	if m.Options().ErrorLog != "" {
+		eLog, err := os.Create(m.Options().ErrorLog)
+		if err != nil {
+			return errors.Wrap(err, "opening error log")
+		}
+		cmd.AddOutputWriter(eLog)
+	}
+
+	if err := cmd.RunSuccess(); err != nil {
+		return err
+	}
 
 	return nil
 }

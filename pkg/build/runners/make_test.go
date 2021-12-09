@@ -4,6 +4,7 @@
 package runners
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,10 +18,20 @@ func TestMakeRun(t *testing.T) {
 	require.NoError(t, err)
 	defer os.Remove(dir)
 
+	tmpfile, err := os.CreateTemp("", "make-test-")
+	require.NoError(t, err)
+	defer os.Remove(tmpfile.Name())
+
 	// Write a simple make file
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dir, "Makefile"),
-		[]byte(".PHONY: test-target\ntest-target: # Just echo a string\n\t echo \"Hola amigos\"\n"), os.FileMode(0o644)),
+		[]byte(
+			fmt.Sprintf(
+				".PHONY: test-target\ntest-target: # Just echo a string\n\t echo \"Hola amigos\" > %s\n",
+				tmpfile.Name(),
+			),
+		),
+		os.FileMode(0o644)),
 	)
 
 	//
@@ -28,5 +39,8 @@ func TestMakeRun(t *testing.T) {
 	m.Options().Workdir = dir
 	require.NoError(t, m.Run())
 	// Verify the output.
-	require.Equal(t, "echo \"Hola amigos\"\nHola amigos\n", m.Output())
+	require.FileExists(t, tmpfile.Name())
+	data, err := os.ReadFile(tmpfile.Name())
+	require.NoError(t, err)
+	require.Equal(t, "Hola amigos\n", string(data))
 }

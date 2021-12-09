@@ -2,9 +2,12 @@ package git
 
 import (
 	"fmt"
+	"os"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/pkg/errors"
+	"sigs.k8s.io/release-utils/command"
+	"sigs.k8s.io/release-utils/util"
 )
 
 const (
@@ -37,6 +40,7 @@ func NewWithOptions(opts *Options) *Git {
 type gitImplementation interface {
 	openRepo(path string) (repo *Repository, err error)
 	cloneRepo(url, path string) (repo *Repository, err error)
+	lsRemote(args ...string) (string, error)
 }
 
 func (g *Git) OpenRepo(path string) (repo *Repository, err error) {
@@ -44,6 +48,27 @@ func (g *Git) OpenRepo(path string) (repo *Repository, err error) {
 }
 
 func (g *Git) CloneRepo(url, path string) (repo *Repository, err error) {
+	return g.impl.cloneRepo(url, path)
+}
+
+func (g *Git) LsRemote(args ...string) (string, error) {
+	return g.impl.lsRemote(args...)
+}
+
+// OpenOrCloneRepo
+func (g *Git) OpenOrCloneRepo(url, path string) (repo *Repository, err error) {
+	// If we have no path, work in a temp directory
+	if path == "" {
+		path, err = os.MkdirTemp("", "repo-clone-")
+		if err != nil {
+			return nil, errors.Wrap(err, "creating temporary directory")
+		}
+	}
+
+	if util.Exists(path) {
+		// todo(@puerco): Check the directory actually is a fork of the repo
+		return g.impl.openRepo(path)
+	}
 	return g.impl.cloneRepo(url, path)
 }
 
@@ -79,4 +104,12 @@ func (di *defaultGitImpl) cloneRepo(url, path string) (repo *Repository, err err
 	repo = NewRepositoryWithOptions(opts)
 	repo.SetClient(gogitrepo)
 	return repo, nil
+}
+
+// lsRemote executes ls remote and returns the output
+func (di *defaultGitImpl) lsRemote(args ...string) (string, error) {
+	o, err := command.New(
+		gitCommand, append([]string{"ls-remote"}, args...)...,
+	).RunSuccessOutput()
+	return o.Output(), err
 }
