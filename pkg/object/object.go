@@ -30,6 +30,7 @@ func NewManager() *Manager {
 		backends.NewFilesystemWithOptions(&backends.Options{}),
 		backends.NewS3WithOptions(&backends.Options{}),
 		backends.NewGitWithOptions(&backends.Options{}),
+		backends.NewHTTPWithOptions(&backends.Options{}),
 	)
 	return om
 }
@@ -46,6 +47,9 @@ func (om *Manager) PathExists(path string) (bool, error) {
 
 // Copy copies an object from a srcURL to a destination URL
 func (om *Manager) Copy(srcURL, destURL string) (err error) {
+	if srcURL == "" {
+		return errors.New("unable to transfer file, no src url defined")
+	}
 	logrus.Infof("Transferring data from %s to %s", srcURL, destURL)
 	srcBackend, err := om.impl.GetURLBackend(om.Backends, srcURL)
 	if err != nil {
