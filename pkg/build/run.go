@@ -46,11 +46,12 @@ type Run struct {
 
 // RunOptions control specific bits of a build run
 type RunOptions struct {
-	ForceBuild bool             // When true, build will run even if artifacts exist already
-	BuildPoint string           // git build point where the build will run
-	Materials  MaterialsConfig  // List of materials for the build
-	Artifacts  ArtifactsConfig  // Artifacts configuration
-	Transfers  []TransferConfig // Artifacts to transfer out
+	ForceBuild   bool             // When true, build will run even if artifacts exist already
+	BuildPoint   string           // git build point where the build will run
+	MaterialsDir string           // Directory to store materials
+	Materials    MaterialsConfig  // List of materials for the build
+	Artifacts    ArtifactsConfig  // Artifacts configuration
+	Transfers    []TransferConfig // Artifacts to transfer out
 }
 
 var DefaultRunOptions = &RunOptions{}
@@ -71,6 +72,13 @@ func (r *Run) ID() string {
 
 func (r *Run) setRunnerOptions() {
 	r.runner.Options().BuildPoint = r.opts.BuildPoint
+
+	// Add to the environment
+	if r.runner.Options().EnvVars == nil {
+		r.runner.Options().EnvVars = map[string]string{}
+	}
+	r.runner.Options().EnvVars["PWD"] = r.runner.Options().Workdir
+	r.runner.Options().EnvVars["MMBUILD_MATERIALS_DIR"] = r.opts.MaterialsDir
 }
 
 // Execute executes the run
@@ -97,13 +105,15 @@ func (r *Run) Execute() error {
 	if err != nil {
 		return errors.Wrap(err, "checking if artifacts already exist")
 	}
-	if *exists {
-		if !r.opts.ForceBuild {
-			r.isSuccess = &RUNSUCCESS
-			logrus.Info("Artifacts found in the bucket, not running build again")
-			return nil
+	if exists != nil {
+		if *exists {
+			if !r.opts.ForceBuild {
+				r.isSuccess = &RUNSUCCESS
+				logrus.Info("Artifacts found in the bucket, not running build again")
+				return nil
+			}
+			logrus.Info("Artifacts exist, but ForceBuild option is set, running build.")
 		}
-		logrus.Info("Artifacts exist, but ForceBuild option is set, running build.")
 	}
 
 	// Download the materials to run the build
@@ -394,10 +404,18 @@ func (dri *defaultRunImplementation) downloadMaterials(r *Run) error {
 		return nil
 	}
 
-	materialsDir, err := os.MkdirTemp("", "materials-download-")
-	if err != nil {
-		return errors.Wrap(err, "creating materials directory")
+	if r.opts.MaterialsDir == "" {
+		materialsDir, err := os.MkdirTemp("", "materials-download-")
+		if err != nil {
+			return errors.Wrap(err, "creating materials directory")
+		}
+		r.opts.MaterialsDir = materialsDir
 	}
+
+	logrus.Infof(
+		"Fetching %d artifacts from materials list to %s",
+		len(r.opts.Materials), r.opts.MaterialsDir,
+	)
 
 	// We can run without materials being hased. But we have to record the
 	// the version we are getting to make sure we attest what we intake
@@ -415,8 +433,8 @@ func (dri *defaultRunImplementation) downloadMaterials(r *Run) error {
 	// TODO: Parallelize downloads
 	for i, m := range r.opts.Materials {
 		logrus.Infof("Downloading from %s", m.URI)
-		if err := manager.Copy(m.URI, "file:/"+materialsDir); err != nil {
-			return errors.Wrap(err, "copying artifact")
+		if err := manager.Copy(m.URI, "file:/"+r.opts.MaterialsDir); err != nil {
+			return errors.Wrap(err, "copying material")
 		}
 
 		// Check if we need to fetch the latest hash from the material
@@ -499,7 +517,7 @@ func (dri *defaultRunImplementation) artifactsExist(r *Run) (exists *bool, err e
 	if err != nil {
 		return exists, errors.Wrap(err, "checking if artifacts exist")
 	}
-	logrus.Infof("Manager returned %v for artifacts", e)
+	logrus.Infof("Manager returned %v when checking if artifacts exist", e)
 	return &e, nil
 }
 
