@@ -510,7 +510,7 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 	return errors.Wrap(
 		manager.Copy(
 			"file:/"+r.ProvenancePath,
-			r.opts.Artifacts.Destination+string(filepath.Separator)+ProvenanceFilename,
+			targetURL+string(filepath.Separator)+ProvenanceFilename,
 		),
 		"copying provenance metadata to artifact destination",
 	)
