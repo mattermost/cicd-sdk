@@ -425,6 +425,8 @@ func (dri *defaultRunImplementation) downloadMaterials(r *Run) error {
 			if len(m.Digest) == 0 {
 				needHash[m.URI] = struct{}{}
 			}
+		} else {
+			needHash[m.URI] = struct{}{}
 		}
 	}
 
