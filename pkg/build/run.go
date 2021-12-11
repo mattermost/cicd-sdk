@@ -224,6 +224,14 @@ func (dri *defaultRunImplementation) provenance(r *Run) (*intoto.ProvenanceState
 	// Generate the environment struct
 	envData := map[string]string{}
 	for v, val := range r.runner.Options().EnvVars {
+		// Synthetic environment vars are not recorded:
+		if v == "PWD" {
+			continue
+		}
+		// Run and build vars from the build system are not recorded
+		if strings.HasPrefix(v, "MMBUILD_") {
+			continue
+		}
 		envData[v] = val
 	}
 

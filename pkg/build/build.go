@@ -283,6 +283,12 @@ func (b *Build) Load(path string) error {
 	b.Options().Transfers = conf.Transfers // Artifacts to transfer out
 	b.Options().Materials = conf.Materials // List of the build materials
 
+	// Assign the env variables found in the config
+	b.Options().EnvVars = map[string]string{}
+	for _, e := range conf.Env {
+		b.Options().EnvVars[e.Var] = e.Value
+	}
+
 	if conf.Artifacts.Files != nil {
 		if conf.Artifacts.Files != nil {
 			b.Options().Artifacts = conf.Artifacts

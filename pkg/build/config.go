@@ -233,6 +233,7 @@ type SecretConfig struct {
 type EnvConfig struct {
 	Var   string `yaml:"var"`   // Env var name. Will be required
 	Value string `yaml:"value"` // Value. If set, the build system will set it before starting
+	// TODO(@puerco): Support valueFrom to load data from secrets
 }
 
 type ReplacementConfig struct {
