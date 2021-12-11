@@ -314,6 +314,16 @@ func (dri *defaultRunImplementation) provenance(r *Run) (*intoto.ProvenanceState
 		}
 	}
 
+	// Add all materials to the provenance data
+	for _, m := range r.opts.Materials {
+		statement.Predicate.Materials = append(statement.Predicate.Materials,
+			v02.ProvenanceMaterial{
+				URI:    m.URI,
+				Digest: m.Digest,
+			},
+		)
+	}
+
 	return &statement, nil
 }
 
