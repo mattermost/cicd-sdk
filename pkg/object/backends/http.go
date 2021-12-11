@@ -81,6 +81,10 @@ func (h *ObjectBackendHTTP) CopyObject(srcURL, destURL string) (err error) {
 		}
 		defer resp.Body.Close()
 
+		if resp.StatusCode != 200 {
+			return errors.Errorf("got http error %d when downloading object", resp.StatusCode)
+		}
+
 		// Write the body to file
 		if _, err = io.Copy(localFile, resp.Body); err != nil {
 			return errors.Wrap(err, "writing data to local file")
@@ -114,7 +118,7 @@ func (h *ObjectBackendHTTP) GetObjectHash(objectURL string) (hashes map[string]s
 		return nil, errors.Wrap(err, "creating temp file")
 	}
 
-	if err := h.CopyObject(objectURL, URLPrefixFilesystem+objectURL[1:]); err != nil {
+	if err := h.CopyObject(objectURL, URLPrefixFilesystem+f.Name()[1:]); err != nil {
 		return nil, errors.Wrap(err, "downloading temporary file")
 	}
 
