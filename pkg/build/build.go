@@ -308,3 +308,24 @@ func (b *Build) Load(path string) error {
 
 	return nil
 }
+
+// digestSetForFile reads a file and produces a digestSet
+// for subjects and material attestations
+func digestSetForFile(filePath string) (hashes map[string]string, err error) {
+	// Creat the function set to iterate
+	fs := map[string]func(string) (string, error){
+		"sha1":   hash.SHA1ForFile,
+		"sha256": hash.SHA256ForFile,
+		"sha512": hash.SHA512ForFile,
+	}
+
+	hashes = map[string]string{}
+	for algo, fn := range fs {
+		h, err := fn(filePath)
+		if err != nil {
+			return nil, errors.Wrapf(err, "generating digestset for %s", filePath)
+		}
+		hashes[algo] = h
+	}
+	return hashes, err
+}
