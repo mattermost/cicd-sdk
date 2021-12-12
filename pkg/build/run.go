@@ -46,11 +46,12 @@ type Run struct {
 
 // RunOptions control specific bits of a build run
 type RunOptions struct {
-	ForceBuild bool             // When true, build will run even if artifacts exist already
-	BuildPoint string           // git build point where the build will run
-	Materials  MaterialsConfig  // List of materials for the build
-	Artifacts  ArtifactsConfig  // Artifacts configuration
-	Transfers  []TransferConfig // Artifacts to transfer out
+	ForceBuild   bool             // When true, build will run even if artifacts exist already
+	BuildPoint   string           // git build point where the build will run
+	MaterialsDir string           // Directory to store materials
+	Materials    MaterialsConfig  // List of materials for the build
+	Artifacts    ArtifactsConfig  // Artifacts configuration
+	Transfers    []TransferConfig // Artifacts to transfer out
 }
 
 var DefaultRunOptions = &RunOptions{}
@@ -71,6 +72,13 @@ func (r *Run) ID() string {
 
 func (r *Run) setRunnerOptions() {
 	r.runner.Options().BuildPoint = r.opts.BuildPoint
+
+	// Add to the environment
+	if r.runner.Options().EnvVars == nil {
+		r.runner.Options().EnvVars = map[string]string{}
+	}
+	r.runner.Options().EnvVars["PWD"] = r.runner.Options().Workdir
+	r.runner.Options().EnvVars["MMBUILD_MATERIALS_DIR"] = r.opts.MaterialsDir
 }
 
 // Execute executes the run
@@ -97,13 +105,15 @@ func (r *Run) Execute() error {
 	if err != nil {
 		return errors.Wrap(err, "checking if artifacts already exist")
 	}
-	if *exists {
-		if !r.opts.ForceBuild {
-			r.isSuccess = &RUNSUCCESS
-			logrus.Info("Artifacts found in the bucket, not running build again")
-			return nil
+	if exists != nil {
+		if *exists {
+			if !r.opts.ForceBuild {
+				r.isSuccess = &RUNSUCCESS
+				logrus.Info("Artifacts found in the bucket, not running build again")
+				return nil
+			}
+			logrus.Info("Artifacts exist, but ForceBuild option is set, running build.")
 		}
-		logrus.Info("Artifacts exist, but ForceBuild option is set, running build.")
 	}
 
 	// Download the materials to run the build
@@ -176,6 +186,7 @@ type runImplementation interface {
 	downloadMaterials(*Run) error
 	storeArtifacts(*Run) error
 	artifactsExist(*Run) (*bool, error)
+	getLatestMaterialHash(*Run, string) (map[string]string, error)
 }
 
 type defaultRunImplementation struct{}
@@ -213,6 +224,14 @@ func (dri *defaultRunImplementation) provenance(r *Run) (*intoto.ProvenanceState
 	// Generate the environment struct
 	envData := map[string]string{}
 	for v, val := range r.runner.Options().EnvVars {
+		// Synthetic environment vars are not recorded:
+		if v == "PWD" {
+			continue
+		}
+		// Run and build vars from the build system are not recorded
+		if strings.HasPrefix(v, "MMBUILD_") {
+			continue
+		}
 		envData[v] = val
 	}
 
@@ -295,6 +314,16 @@ func (dri *defaultRunImplementation) provenance(r *Run) (*intoto.ProvenanceState
 		}
 	}
 
+	// Add all materials to the provenance data
+	for _, m := range r.opts.Materials {
+		statement.Predicate.Materials = append(statement.Predicate.Materials,
+			v02.ProvenanceMaterial{
+				URI:    m.URI,
+				Digest: m.Digest,
+			},
+		)
+	}
+
 	return &statement, nil
 }
 
@@ -343,6 +372,7 @@ func (dri *defaultRunImplementation) checkoutBuildPoint(r *Run) error {
 		}
 		commitSha := output.OutputTrimNL()
 		r.runner.Options().BuildPoint = commitSha
+		r.opts.BuildPoint = commitSha
 		logrus.Infof("HEAD commit is %s", commitSha)
 		return nil
 	}
@@ -392,18 +422,49 @@ func (dri *defaultRunImplementation) downloadMaterials(r *Run) error {
 		return nil
 	}
 
-	materialsDir, err := os.MkdirTemp("", "materials-download-")
-	if err != nil {
-		return errors.Wrap(err, "creating materials directory")
+	if r.opts.MaterialsDir == "" {
+		materialsDir, err := os.MkdirTemp("", "materials-download-")
+		if err != nil {
+			return errors.Wrap(err, "creating materials directory")
+		}
+		r.opts.MaterialsDir = materialsDir
+	}
+
+	logrus.Infof(
+		"Fetching %d artifacts from materials list to %s",
+		len(r.opts.Materials), r.opts.MaterialsDir,
+	)
+
+	// We can run without materials being hased. But we have to record the
+	// the version we are getting to make sure we attest what we intake
+	needHash := map[string]struct{}{}
+	for _, m := range r.opts.Materials {
+		if m.Digest != nil {
+			if len(m.Digest) == 0 {
+				needHash[m.URI] = struct{}{}
+			}
+		} else {
+			needHash[m.URI] = struct{}{}
+		}
 	}
 
 	manager := object.NewManager()
 
 	// TODO: Parallelize downloads
-	for _, m := range r.opts.Materials {
+	for i, m := range r.opts.Materials {
 		logrus.Infof("Downloading from %s", m.URI)
-		if err := manager.Copy(m.URI, "file:/"+materialsDir); err != nil {
-			return errors.Wrap(err, "copying artifact")
+		if err := manager.Copy(m.URI, "file:/"+r.opts.MaterialsDir); err != nil {
+			return errors.Wrap(err, "copying material")
+		}
+
+		// Check if we need to fetch the latest hash from the material
+		if _, ok := needHash[m.URI]; ok {
+			digestSet, err := dri.getLatestMaterialHash(r, m.URI)
+			if err != nil {
+				return errors.Wrapf(err, "getting latest hash for %s", m.URI)
+			}
+			logrus.Infof("Got latest hashes for material #%d: %+v", i, digestSet)
+			r.opts.Materials[i].Digest = digestSet
 		}
 	}
 
@@ -422,8 +483,22 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 		return nil
 	}
 
+	stagingPath, err := dri.stagingPath(r)
+	if err != nil {
+		return errors.Wrap(err, "getting staging directory")
+	}
+
+	// Determine the artifacts detination
+	targetURL := r.opts.Artifacts.Destination
+	if strings.Contains(targetURL, "${MMBUILD_STAGEPATH}") {
+		targetURL = strings.ReplaceAll(targetURL, "${MMBUILD_STAGEPATH}", stagingPath)
+	} else {
+		targetURL = targetURL + string(filepath.Separator) + stagingPath
+	}
+
 	// Create an object manager to copy the files
 	manager := object.NewManager()
+
 	// TODO(@puerco): This should be parallelized in the object manager
 	for _, fname := range r.opts.Artifacts.Files {
 		rpath, err := filepath.Abs(filepath.Join(r.runner.Options().Workdir, fname))
@@ -433,11 +508,11 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 		// Copy the file to the artifact destination
 		if err := manager.Copy(
 			"file:/"+rpath,
-			r.opts.Artifacts.Destination+string(filepath.Separator)+fname,
+			targetURL+string(filepath.Separator)+fname,
 		); err != nil {
 			return errors.Wrapf(
 				err, "copying %s to %s",
-				fname, r.opts.Artifacts.Destination,
+				fname, targetURL,
 			)
 		}
 	}
@@ -445,7 +520,7 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 	return errors.Wrap(
 		manager.Copy(
 			"file:/"+r.ProvenancePath,
-			r.opts.Artifacts.Destination+string(filepath.Separator)+ProvenanceFilename,
+			targetURL+string(filepath.Separator)+ProvenanceFilename,
 		),
 		"copying provenance metadata to artifact destination",
 	)
@@ -462,7 +537,7 @@ func (dri *defaultRunImplementation) artifactsExist(r *Run) (exists *bool, err e
 	if err != nil {
 		return exists, errors.Wrap(err, "checking if artifacts exist")
 	}
-	logrus.Infof("Manager returned %v for artifacts", e)
+	logrus.Infof("Manager returned %v when checking if artifacts exist", e)
 	return &e, nil
 }
 
@@ -518,4 +593,8 @@ func (dri *defaultRunImplementation) stagingPath(r *Run) (string, error) {
 
 	// Hash the string
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(str))), nil
+}
+
+func (dri *defaultRunImplementation) getLatestMaterialHash(r *Run, url string) (map[string]string, error) {
+	return object.NewManager().GetObjectHash(url)
 }
