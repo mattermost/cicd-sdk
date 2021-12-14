@@ -112,15 +112,34 @@ func NewFromAttestation(provenancePath string, extraOpts *Options) (*Build, erro
 }
 
 func (b *Build) RunAttestation(path string) error {
+	// Set the runner options
+	b.setRunnerOptions()
+
 	statement, err := loadAttestation(path)
 	if err != nil {
 		return errors.Wrap(err, "opening attestation metadata")
 	}
-	ropts := &RunOptions{}
+	ropts := &RunOptions{
+		Materials: MaterialsConfig{},
+	}
+
 	// TODO(puerco@) if running from directory, ensure material 0 URI and
 	// repo main remote match.
 	if len(statement.Predicate.Materials) > 0 {
-		ropts.BuildPoint = statement.Predicate.Materials[0].Digest["sha1"]
+		for i, m := range statement.Predicate.Materials {
+			if i == 0 {
+				ropts.BuildPoint = m.Digest["sha1"]
+				continue
+			}
+			ropts.Materials = append(ropts.Materials, struct {
+				URI    string            "yaml:\"uri\""
+				Digest map[string]string "yaml:\"digest\""
+			}{
+				URI:    m.URI,
+				Digest: m.Digest,
+			},
+			)
+		}
 	}
 	run := b.RunWithOptions(ropts)
 
