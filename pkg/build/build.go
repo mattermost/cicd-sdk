@@ -117,6 +117,8 @@ func (b *Build) RunAttestation(path string) error {
 		return errors.Wrap(err, "opening attestation metadata")
 	}
 	ropts := &RunOptions{}
+	// TODO(puerco@) if running from directory, ensure material 0 URI and
+	// repo main remote match.
 	if len(statement.Predicate.Materials) > 0 {
 		ropts.BuildPoint = statement.Predicate.Materials[0].Digest["sha1"]
 	}
