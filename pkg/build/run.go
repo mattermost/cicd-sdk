@@ -368,16 +368,20 @@ func (dri *defaultRunImplementation) checkoutBuildPoint(r *Run) error {
 	// If we do not have opts.Source set, we use the expected repo clone
 	// in workdir to determine it.
 	if r.runner.Options().Source == "" {
-		repo, err := git.New().OpenRepo(r.runner.Options().Workdir)
-		if err != nil {
-			return errors.Wrap(err, "opening source repository to check for source and buildporint")
+		if util.Exists(filepath.Join(r.runner.Options().Workdir, ".git")) {
+			repo, err := git.New().OpenRepo(r.runner.Options().Workdir)
+			if err != nil {
+				return errors.Wrap(err, "opening source repository to check for source and buildporint")
+			}
+			sourceURL, err := repo.MainRemoteURL()
+			if err != nil {
+				return errors.Wrap(err, "unable to determine source URL from local git repo")
+			}
+			r.runner.Options().Source = sourceURL
+			logrus.Infof("Source URL determined from WorkDir git repository: %s", sourceURL)
+		} else {
+			logrus.Info("Not gettting build point, not working in a git repo")
 		}
-		sourceURL, err := repo.MainRemoteURL()
-		if err != nil {
-			return errors.Wrap(err, "unable to determine source URL from local git repo")
-		}
-		r.runner.Options().Source = sourceURL
-		logrus.Infof("Source URL determined from WorkDir git repository: %s", sourceURL)
 	}
 
 	// If buildpoint is blank, we assume we are about to run the
