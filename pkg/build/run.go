@@ -29,7 +29,10 @@ var (
 	RUNFAIL    = false
 )
 
-const ProvenanceFilename = "provenance.json"
+const (
+	ProvenanceFilename = "provenance.json"
+	DotEnvFilename     = "build.env"
+)
 
 // Run asbtracts a build run
 type Run struct {
@@ -167,6 +170,10 @@ func (r *Run) Execute() error {
 		return errors.Wrap(err, "transferring artifacts to destination")
 	}
 
+	if err := r.impl.writeDotEnvArtifact(r); err != nil {
+		return errors.Wrap(err, "writing dotenv report artifact")
+	}
+
 	r.isSuccess = &RUNSUCCESS
 
 	return nil
@@ -187,6 +194,7 @@ type runImplementation interface {
 	storeArtifacts(*Run) error
 	artifactsExist(*Run) (*bool, error)
 	getLatestMaterialHash(*Run, string) (map[string]string, error)
+	writeDotEnvArtifact(*Run) error
 }
 
 type defaultRunImplementation struct{}
@@ -471,6 +479,22 @@ func (dri *defaultRunImplementation) downloadMaterials(r *Run) error {
 	return nil
 }
 
+func (dri *defaultRunImplementation) stagingURL(r *Run) (string, error) {
+	stagingPath, err := dri.stagingPath(r)
+	if err != nil {
+		return "", errors.Wrap(err, "getting staging directory")
+	}
+
+	// Determine the artifacts detination
+	targetURL := r.opts.Artifacts.Destination
+	if strings.Contains(targetURL, "${MMBUILD_STAGEPATH}") {
+		targetURL = strings.ReplaceAll(targetURL, "${MMBUILD_STAGEPATH}", stagingPath)
+	} else {
+		targetURL = targetURL + string(filepath.Separator) + stagingPath
+	}
+	return targetURL, nil
+}
+
 // storeArtifacts stores the builds artifacts into the expected bucket
 func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 	if r.opts.Artifacts.Destination == "" {
@@ -483,17 +507,9 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 		return nil
 	}
 
-	stagingPath, err := dri.stagingPath(r)
+	targetURL, err := dri.stagingURL(r)
 	if err != nil {
-		return errors.Wrap(err, "getting staging directory")
-	}
-
-	// Determine the artifacts detination
-	targetURL := r.opts.Artifacts.Destination
-	if strings.Contains(targetURL, "${MMBUILD_STAGEPATH}") {
-		targetURL = strings.ReplaceAll(targetURL, "${MMBUILD_STAGEPATH}", stagingPath)
-	} else {
-		targetURL = targetURL + string(filepath.Separator) + stagingPath
+		return errors.Wrap(err, "getting staging url")
 	}
 
 	// Create an object manager to copy the files
@@ -597,4 +613,28 @@ func (dri *defaultRunImplementation) stagingPath(r *Run) (string, error) {
 
 func (dri *defaultRunImplementation) getLatestMaterialHash(r *Run, url string) (map[string]string, error) {
 	return object.NewManager().GetObjectHash(url)
+}
+
+// writeDotEnvArtifact writes some metadata generated during the run
+// to a dotenv artifact to consume it in later steps as gitlab variables
+func (dri *defaultRunImplementation) writeDotEnvArtifact(r *Run) error {
+	// We will store the staging path, get it:
+	spath, err := dri.stagingPath(r)
+	if err != nil {
+		return errors.Wrap(err, "reading run staging path")
+	}
+
+	surl, err := dri.stagingURL(r)
+	if err != nil {
+		return errors.Wrap(err, "getting staging url")
+	}
+
+	// These are the vars we write now:
+	dotenv := fmt.Sprintf("MMBUILD_STAGING_PATH=%s\n", spath)
+	dotenv += fmt.Sprintf("MMBUILD_STAGING_URL=%s\n", surl)
+
+	return errors.Wrap(
+		os.WriteFile(DotEnvFilename, []byte(dotenv), os.FileMode(0o644)),
+		"writing dotenv report file",
+	)
 }
