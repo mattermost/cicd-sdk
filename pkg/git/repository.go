@@ -82,6 +82,10 @@ func (repo *Repository) AddRemote(name, url string) error {
 	return repo.impl.addRemote(repo.client, repo.opts, name, url)
 }
 
+func (repo *Repository) MainRemoteURL() (string, error) {
+	return repo.impl.getMainRemoteURL(repo.opts)
+}
+
 type repositoryImplementation interface {
 	statusRaw(*RepoOptions) (string, error)
 	createBranch(*gogit.Repository, *RepoOptions, string) error
@@ -91,6 +95,7 @@ type repositoryImplementation interface {
 	pushBranch(client *gogit.Repository, opts *RepoOptions, branch, remote string) error
 	cherryPickMergeCommit(client *gogit.Repository, opts *RepoOptions, branch, commitSHA string, parent int) error
 	addRemote(client *gogit.Repository, opts *RepoOptions, name, url string) error
+	getMainRemoteURL(opts *RepoOptions) (string, error)
 }
 
 type defaultRepositoryImpl struct{}
@@ -218,4 +223,31 @@ func (di *defaultRepositoryImpl) addRemote(
 		return errors.Wrapf(err, "adding remote %s", name)
 	}
 	return nil
+}
+
+func (di *defaultRepositoryImpl) getMainRemoteURL(opts *RepoOptions) (string, error) {
+	// Current algo (waiting for a better method) is:
+	// 1. try "upstream" as remote if not found, use "origin".
+	url, err := di.getRemoteName(opts, "upstream")
+	if err == nil {
+		return url, nil
+	}
+	if err != nil {
+		if !strings.Contains(err.Error(), "No such remote") {
+			return "", errors.Wrap(err, "reading remote URL from repository")
+		}
+	}
+
+	url, err = di.getRemoteName(opts, "origin")
+	return url, err
+}
+
+func (di *defaultRepositoryImpl) getRemoteName(opts *RepoOptions, remoteName string) (string, error) {
+	url, err := command.NewWithWorkDir(
+		opts.Path, gitCommand, "remote", "get-url", remoteName,
+	).RunSilentSuccessOutput()
+	if err != nil {
+		return "", errors.Wrapf(err, "querying for %s remote URL", remoteName)
+	}
+	return url.OutputTrimNL(), nil
 }

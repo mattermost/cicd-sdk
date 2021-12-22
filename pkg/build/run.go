@@ -16,6 +16,7 @@ import (
 	intoto "github.com/in-toto/in-toto-golang/in_toto"
 	v02 "github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v0.2"
 	"github.com/mattermost/cicd-sdk/pkg/build/runners"
+	"github.com/mattermost/cicd-sdk/pkg/git"
 	"github.com/mattermost/cicd-sdk/pkg/object"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -364,6 +365,25 @@ func (dri *defaultRunImplementation) writeProvenance(r *Run) error {
 }
 
 func (dri *defaultRunImplementation) checkoutBuildPoint(r *Run) error {
+	// If we do not have opts.Source set, we use the expected repo clone
+	// in workdir to determine it.
+	if r.runner.Options().Source == "" {
+		if util.Exists(filepath.Join(r.runner.Options().Workdir, ".git")) {
+			repo, err := git.New().OpenRepo(r.runner.Options().Workdir)
+			if err != nil {
+				return errors.Wrap(err, "opening source repository to check for source and buildporint")
+			}
+			sourceURL, err := repo.MainRemoteURL()
+			if err != nil {
+				return errors.Wrap(err, "unable to determine source URL from local git repo")
+			}
+			r.runner.Options().Source = sourceURL
+			logrus.Infof("Source URL determined from WorkDir git repository: %s", sourceURL)
+		} else {
+			logrus.Info("Not gettting build point, not working in a git repo")
+		}
+	}
+
 	// If buildpoint is blank, we assume we are about to run the
 	// build at HEAD. Here, we get the HEAD commit sha to record
 	// it in the provenance attestation.
@@ -371,6 +391,7 @@ func (dri *defaultRunImplementation) checkoutBuildPoint(r *Run) error {
 		logrus.Info("BuildPoint not set, building at HEAD")
 
 		// Get the current build point:
+		// TODO(puerco@): Move this code to the git package
 		output, err := command.NewWithWorkDir(
 			r.runner.Options().Workdir,
 			"git", "log", "--pretty=format:%H", "-n1",
