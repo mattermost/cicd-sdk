@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/release-utils/hash"
+	"sigs.k8s.io/release-utils/util"
 )
 
 const URLPrefixS3 = "s3://"
@@ -67,11 +68,34 @@ func (s3 *ObjectBackendS3) copyRemoteToLocal(source, destURL string) error {
 	}
 	downloader := s3manager.NewDownloader(&s3.session)
 
-	f, err := os.Create(destPath)
-	if err != nil {
-		return errors.Wrap(err, "opening destination file")
-	}
+	var f *os.File
+	if util.Exists(destPath) {
+		s, err := os.Stat(destPath)
+		if err != nil {
+			return errors.Wrap(err, "checking destination path")
+		}
 
+		if s.IsDir() {
+			u, err := url.Parse(source)
+			if err != nil {
+				return errors.Wrap(err, "parsing source URL")
+			}
+			filename := filepath.Base(u.Path)
+			if filename == "" {
+				filename = "index"
+			}
+			destPath = filepath.Join(destPath, filename)
+		}
+		f, err = os.Create(destPath)
+		if err != nil {
+			return errors.Wrap(err, "creating destination file")
+		}
+	} else {
+		f, err = os.Create(destPath)
+		if err != nil {
+			return errors.Wrap(err, "opening destination file "+destPath)
+		}
+	}
 	// Write the contents of S3 Object to the file
 	n, err := downloader.Download(f, &s3go.GetObjectInput{
 		Bucket: aws.String(bucket),
