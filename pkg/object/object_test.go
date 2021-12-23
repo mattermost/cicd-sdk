@@ -35,7 +35,7 @@ func TestCopyS3(t *testing.T) {
 	os.Setenv("AWS_DEFAULT_REGION", "us-east-1")
 	om := NewManager()
 
-	source := "s3://pr-builds.mattermost.com/mattermost-cloud/account-alerts/commit/02913a9cf037c0c0eb3a31860dd6e99b2fc4c0d1/main.zip"
+	source := "s3://devs.mattermost.com/index.html"
 	destination, err := os.CreateTemp("", "test-copy-")
 	require.NoError(t, err)
 	defer os.Remove(destination.Name())
@@ -47,5 +47,5 @@ func TestCopyS3(t *testing.T) {
 	require.NotZero(t, i.Size())
 	h256, err := hash.SHA256ForFile(destination.Name())
 	require.NoError(t, err)
-	require.Equal(t, "f105f49add53c638b5ba60f23c6bd39943251c05a33f18389f4a724a71e0e3a1", h256)
+	require.Equal(t, "96010d7a5d77a839b14a82deb526c6ad638b0c16bca1cf12e47a9e3de47a385d", h256)
 }
