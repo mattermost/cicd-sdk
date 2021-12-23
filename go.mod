@@ -5,7 +5,7 @@ go 1.17
 require (
 	github.com/go-git/go-git/v5 v5.4.2
 	github.com/google/go-github/v39 v39.2.0
-	github.com/in-toto/in-toto-golang v0.4.0-prerelease
+	github.com/in-toto/in-toto-golang v0.3.4-0.20211211042327-af1f9fb822bf
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
@@ -30,14 +30,13 @@ require (
 	github.com/kevinburke/ssh_config v1.1.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/secure-systems-lab/go-securesystemslib v0.1.0 // indirect
+	github.com/secure-systems-lab/go-securesystemslib v0.3.0 // indirect
 	github.com/sergi/go-diff v1.2.0 // indirect
-	github.com/shibumi/go-pathspec v1.2.0 // indirect
+	github.com/shibumi/go-pathspec v1.3.0 // indirect
 	github.com/spf13/cobra v1.2.1
 	github.com/xanzy/ssh-agent v0.3.0 // indirect
-	golang.org/x/crypto v0.0.0-20210817164053-32db794688a5 // indirect
-	golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d // indirect
-	golang.org/x/sys v0.0.0-20211013075003-97ac67df715c // indirect
+	golang.org/x/crypto v0.0.0-20211209193657-4570a0811e8b // indirect
+	golang.org/x/sys v0.0.0-20211210111614-af8b64212486 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
@@ -49,3 +48,5 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 )
+
+require golang.org/x/net v0.0.0-20211112202133-69e39bad7dc2 // indirect
