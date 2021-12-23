@@ -194,7 +194,8 @@ type Build struct {
 }
 
 type Options struct {
-	Workdir       string
+	ForceBuild    bool              // Execut the builder even if the expected artifacts are found
+	Workdir       string            // Working directory. Usually the clone of the repo
 	Source        string            // Source is the URL for the code repository
 	EnvVars       map[string]string // Variables to set when running
 	ProvenanceDir string            // FIrectory to save the provenance attestations
@@ -238,8 +239,8 @@ func (b *Build) Run() *Run {
 	opts := DefaultRunOptions
 	opts.Transfers = b.Options().Transfers
 	opts.Materials = b.Options().Materials
-	opts.Artifacts = b.opts.Artifacts
-	opts.ForceBuild = true
+	opts.Artifacts = b.Options().Artifacts
+	opts.ForceBuild = b.Options().ForceBuild
 	return b.RunWithOptions(opts)
 }
 
