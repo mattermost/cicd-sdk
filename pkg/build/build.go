@@ -195,6 +195,7 @@ type Build struct {
 
 type Options struct {
 	ForceBuild    bool              // Execut the builder even if the expected artifacts are found
+	SBOM          bool              // If true, write an SPDX sbom describing the expected artifacts
 	Workdir       string            // Working directory. Usually the clone of the repo
 	Source        string            // Source is the URL for the code repository
 	EnvVars       map[string]string // Variables to set when running
@@ -241,6 +242,7 @@ func (b *Build) Run() *Run {
 	opts.Materials = b.Options().Materials
 	opts.Artifacts = b.Options().Artifacts
 	opts.ForceBuild = b.Options().ForceBuild
+	opts.SBOM = b.Options().SBOM
 	return b.RunWithOptions(opts)
 }
 

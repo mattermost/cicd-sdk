@@ -20,6 +20,7 @@ import (
 	"github.com/mattermost/cicd-sdk/pkg/object"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/bom/pkg/spdx"
 	"sigs.k8s.io/release-utils/command"
 	"sigs.k8s.io/release-utils/hash"
 	"sigs.k8s.io/release-utils/util"
@@ -33,6 +34,7 @@ var (
 const (
 	ProvenanceFilename = "provenance.json"
 	DotEnvFilename     = "build.env"
+	SBOMFileName       = "sbom.spdx"
 )
 
 // Run asbtracts a build run
@@ -51,6 +53,7 @@ type Run struct {
 // RunOptions control specific bits of a build run
 type RunOptions struct {
 	ForceBuild   bool             // When true, build will run even if artifacts exist already
+	SBOM         bool             // Write an SBOM for the run when true
 	BuildPoint   string           // git build point where the build will run
 	MaterialsDir string           // Directory to store materials
 	Materials    MaterialsConfig  // List of materials for the build
@@ -163,8 +166,12 @@ func (r *Run) Execute() error {
 
 	// TODO(@puerco): normalize provenance artifacts to their
 	// transferred locations
-	if r.impl.writeProvenance(r) != nil {
+	if err := r.impl.writeProvenance(r); err != nil {
 		return errors.Wrap(err, "writing provenance metadata")
+	}
+
+	if err := r.impl.generateSBOM(r); err != nil {
+		return errors.Wrap(err, "writing sbom")
 	}
 
 	if err := r.impl.storeArtifacts(r); err != nil {
@@ -196,6 +203,7 @@ type runImplementation interface {
 	artifactsExist(*Run) (*bool, error)
 	getLatestMaterialHash(*Run, string) (map[string]string, error)
 	writeDotEnvArtifact(*Run) error
+	generateSBOM(*Run) error
 }
 
 type defaultRunImplementation struct{}
@@ -658,4 +666,52 @@ func (dri *defaultRunImplementation) writeDotEnvArtifact(r *Run) error {
 		os.WriteFile(DotEnvFilename, []byte(dotenv), os.FileMode(0o644)),
 		"writing dotenv report file",
 	)
+}
+
+// generateSBOM writes a SPDX sbom describing the artifacts produced by the run
+func (dri *defaultRunImplementation) generateSBOM(r *Run) error {
+	if !r.opts.SBOM {
+		logrus.Info("No SBOM requested, skipping")
+	}
+	docbuilder := spdx.NewDocBuilder()
+	builderOpts := &spdx.DocGenerateOptions{
+		ProcessGoModules: true,
+		ScanLicenses:     true,
+		// Name:             opts.ReleaseName,
+		// Namespace:        github.GitHubURL + opts.Repo + "@" + opts.Tag,
+		Directories: []string{r.runner.Options().Source},
+	}
+
+	// Create the document:
+	doc, err := docbuilder.Generate(builderOpts)
+	if err != nil {
+		return errors.Wrap(err, "generating initial SBOM")
+	}
+
+	// List all artifacts and add them
+	spdxClient := spdx.NewSPDX()
+
+	for _, path := range r.opts.Artifacts.Files {
+		spdxFile, err := spdxClient.FileFromPath(filepath.Join(r.runner.Options().Workdir, path))
+		if err != nil {
+			return errors.Wrapf(err, "adding %s to SBOM", path)
+		}
+		spdxFile.Name = path
+		spdxFile.BuildID() // Manual, for now
+		if err := doc.AddFile(spdxFile); err != nil {
+			return errors.Wrapf(err, "adding file %s to sbom", path)
+		}
+	}
+
+	sbomPath := filepath.Join(r.runner.Options().Workdir, SBOMFileName)
+
+	// Write the sbom in the artifacts dir
+	if err := doc.Write(sbomPath); err != nil {
+		return errors.Wrap(err, "writing sbom to disk")
+	}
+
+	// Add the sbom to the build artifacts
+	r.opts.Artifacts.Files = append(r.opts.Artifacts.Files, sbomPath)
+	logrus.Infof("SPDX SBOM written to %s", sbomPath)
+	return nil
 }

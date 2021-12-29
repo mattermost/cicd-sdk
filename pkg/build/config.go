@@ -126,14 +126,15 @@ func parseConf(yamlData []byte) (*Config, error) {
 }
 
 type Config struct {
+	SBOM          bool                `yaml:"sbom"`         // When true, write an SBOM in the working dir
+	ProvenanceDir string              `yaml:"provenance"`   // Directory to write provenance data
 	Runner        RunnerConfig        `yaml:"runner"`       // Tag determining the runner to use
+	Artifacts     ArtifactsConfig     `yaml:"artifacts"`    // Data about artifacts expected to be built
+	Materials     MaterialsConfig     `yaml:"materials"`    // List of materials defined
 	Secrets       []SecretConfig      `yaml:"secrets"`      // Secrets required by the build
 	Env           []EnvConfig         `yaml:"env"`          // Environment vars to require/set
 	Replacements  []ReplacementConfig `yaml:"replacements"` // Replacements to perform before the run
-	Artifacts     ArtifactsConfig     `yaml:"artifacts"`    // Data about artifacts expected to be built
-	ProvenanceDir string              `yaml:"provenance"`   // Directory to write provenance data
 	Transfers     []TransferConfig    `yaml:"transfers"`    // List of artifacts to be transferred out after the build is done
-	Materials     MaterialsConfig     `yaml:"materials"`    // List of materials defined
 }
 
 // Validate checks the configuration values to make sure they are complete

@@ -13,6 +13,7 @@ func TestParseConfig(t *testing.T) {
 runner:
   id: make
   params: ["-v"]
+sbom: true
 secrets:
   - name: TEST_SECRET
 env:     
@@ -86,6 +87,8 @@ materials:
 	require.Len(t, conf.Materials, 1)
 	require.Len(t, conf.Materials[0].Digest, 1)
 	require.Equal(t, conf.Materials[0].Digest["sha1"], "e97447134cd650ee9f9da5d705a06d3c548d3d6c")
+
+	require.True(t, conf.SBOM)
 }
 
 func TestConfigValidate(t *testing.T) {

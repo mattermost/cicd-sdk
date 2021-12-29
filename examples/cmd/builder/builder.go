@@ -68,7 +68,7 @@ func runBuild(opts *buildOpts) (err error) {
 	if err != nil {
 		return errors.Wrap(err, "creating new build")
 	}
-
+	b.Options().SBOM = true
 	b.Options().Workdir = opts.workDir
 
 	run := b.Run()
