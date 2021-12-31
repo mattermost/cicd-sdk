@@ -573,12 +573,12 @@ func (dri *defaultRunImplementation) storeArtifacts(r *Run) error {
 
 // artifactsExist checks if the provenance file exists in the bucket
 func (dri *defaultRunImplementation) artifactsExist(r *Run) (exists *bool, err error) {
-	if r.opts.Artifacts.Destination == "" {
-		logrus.Info("artifact export not defined, not checking destination")
-		return nil, nil
+	stageURL, err := dri.stagingURL(r)
+	if err != nil {
+		return nil, errors.Wrap(err, "getting staging URL")
 	}
 	manager := object.NewManager()
-	e, err := manager.PathExists(r.opts.Artifacts.Destination + string(filepath.Separator) + ProvenanceFilename)
+	e, err := manager.PathExists(stageURL + string(filepath.Separator) + ProvenanceFilename)
 	if err != nil {
 		return exists, errors.Wrap(err, "checking if artifacts exist")
 	}
