@@ -106,6 +106,13 @@ func (r *Run) Execute() error {
 		}
 	}()
 
+	// Before checking if artifacts exist, ensure we have all artifact
+	// hashes. For example, for artifacts not pinned to a hash we need to
+	// get their hashes dynamically
+	if err := r.impl.getMissingMaterialHashes(r); err != nil {
+		return errors.Wrap(err, "getting missing artifact hashes")
+	}
+
 	// Check if the expected materials exist in the destination
 	// if they do, finish the run now.
 	exists, err := r.impl.artifactsExist(r)
@@ -204,6 +211,7 @@ type runImplementation interface {
 	getLatestMaterialHash(*Run, string) (map[string]string, error)
 	writeDotEnvArtifact(*Run) error
 	generateSBOM(*Run) error
+	getMissingMaterialHashes(*Run) error
 }
 
 type defaultRunImplementation struct{}
@@ -713,5 +721,33 @@ func (dri *defaultRunImplementation) generateSBOM(r *Run) error {
 	// Add the sbom to the build artifacts
 	r.opts.Artifacts.Files = append(r.opts.Artifacts.Files, sbomPath)
 	logrus.Infof("SPDX SBOM written to %s", sbomPath)
+	return nil
+}
+
+// getMissingMaterialHashes checks the materials list
+func (dri *defaultRunImplementation) getMissingMaterialHashes(r *Run) error {
+	manager := object.NewManager()
+	for i := range r.opts.Materials {
+		if len(r.opts.Materials[i].Digest) > 0 {
+			continue
+		}
+		logrus.Infof(
+			"Material %s has missing hashes. Checksumming.",
+			r.opts.Materials[i].URI,
+		)
+		hashes, err := manager.GetObjectHash(r.opts.Materials[i].URI)
+		if err != nil {
+			return errors.Wrapf(
+				err, "getting hashes for %s",
+				r.opts.Materials[i].URI,
+			)
+		}
+		r.opts.Materials[i].Digest = hashes
+		logrus.Infof(
+			"%s hashed at %+v",
+			r.opts.Materials[i].URI,
+			r.opts.Materials[i].Digest,
+		)
+	}
 	return nil
 }
